@@ -125,24 +125,6 @@ A: A 10-minute video uses roughly 2000–3000 input tokens plus a similar output
 - Translation requests go **directly** to the official APIs (`api.deepseek.com` / `translate.googleapis.com`) — no proxy in between.
 - Your API key is stored in your local browser only. The source is open and auditable.
 
-## Changelog
-
-- **0.10.0** Configurable translation pipeline:
-  - Target language is now user-selectable via a new `Target language / 目标` menu command (defaults to `zh-CN` for Chinese UI, `en` for English UI)
-  - Source language is auto-detected from YouTube's caption URL (`?lang=` parameter); displayed in the debug banner
-  - DeepSeek prompt and Google `tl=` are dynamically built from the chosen target
-  - When source equals target (same language), translation is skipped — the original captions become both lines instantly
-  - Cue data fields renamed `en`/`zh` → `src`/`tgt`; CSS IDs renamed to match; multi-script font stack added (CJK + Latin + Arabic + Devanagari + Thai)
-  - Cache key now includes the target language, so switching targets won't reuse stale translations
-- **0.9.2** Added bilingual UI: menus, prompts, alerts and debug banner now follow `navigator.language` (Chinese for `zh-*`, English elsewhere). Added a `Language / 语言` menu entry to flip manually; choice persists via `GM_setValue`. Script source comments remain Chinese.
-- **0.9.1** Rewrote the dedup pass in the subtitle parser to fix the "YouTube CC shows the sentence but the overlay skips it" bug:
-  - Recognizes `aAppend === 1` rolling-caption frames in json3 (previously double-counted into the accumulator)
-  - Three-way overlap dedup (exact duplicate / prefix-extension rolling / suffix-replay rolling); never discards events with genuinely different content (the root cause of the v0.9.0 "lazy dog" drop)
-  - Render-side binary search uses "latest-started + 1.5s gap bridging" to eliminate flicker between cues
-- **0.9.0** Rewrote subtitle parser: cross-event accumulation, punctuation-only splitting, 10s fallback. Fixed ASR captions being split mid-sentence at event boundaries (e.g. "I also teach around" / "50 students")
-- **0.8.1** Fixed off-by-one in the comma-split heuristic
-- **0.8.0** Reworked architecture to interception-based capture
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
