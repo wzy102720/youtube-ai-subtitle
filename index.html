@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>YouTube 双语字幕 · 油猴脚本</title>
-<meta name="description" content="拦截 YouTube 字幕请求，预先翻译，叠加显示中英双语字幕。支持 DeepSeek / Google 翻译。">
+<title>YouTube Bilingual Subtitles · Userscript</title>
+<meta name="description" content="Intercept YouTube caption requests, translate ahead of time, overlay Chinese + English bilingual subtitles. DeepSeek / Google supported.">
 <style>
   * { box-sizing: border-box; }
   body {
@@ -18,8 +18,15 @@
   .wrap {
     max-width: 720px;
     margin: 0 auto;
-    padding: 48px 24px 80px;
+    padding: 24px 24px 80px;
   }
+  .lang-switch {
+    text-align: right;
+    font-size: 0.9rem;
+    margin-bottom: 24px;
+    color: #59636e;
+  }
+  .lang-switch .active { font-weight: 600; color: #1f2328; }
   h1 {
     font-size: 2.2rem;
     margin: 0 0 8px;
@@ -83,6 +90,11 @@
   }
   .feat strong { display: block; margin-bottom: 4px; }
   .feat span { color: #59636e; font-size: 0.9rem; }
+  .note {
+    color: #59636e;
+    font-size: 0.92rem;
+    margin-top: 8px;
+  }
   footer {
     margin-top: 48px;
     padding-top: 20px;
@@ -94,56 +106,64 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>YouTube 双语字幕</h1>
-    <p class="tagline">拦截 YouTube 字幕请求，预先翻译，叠加显示中英双语字幕。</p>
+    <div class="lang-switch">
+      <span class="active">English</span> · <a href="zh.html">简体中文</a>
+    </div>
+
+    <h1>YouTube Bilingual Subtitles</h1>
+    <p class="tagline">Intercept YouTube's caption requests, translate them ahead of time, and overlay bilingual subtitles on the video.</p>
 
     <a class="install"
        href="https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js">
-      一键安装脚本
+      Install Script
     </a>
     <p class="install-note">
-      点击上方按钮，油猴会自动弹出安装对话框。
-      还没装油猴？先装 <a href="https://www.tampermonkey.net/">Tampermonkey</a>。
+      Click the button above and Tampermonkey will automatically prompt to install.
+      Don't have Tampermonkey yet? Install <a href="https://www.tampermonkey.net/">Tampermonkey</a> first.
     </p>
 
     <div class="features">
-      <div class="feat"><strong>劫持原生字幕</strong><span>直接拦截 YouTube 的 /api/timedtext 请求</span></div>
-      <div class="feat"><strong>智能切分</strong><span>只在标点处切，不把一句话切到一半</span></div>
-      <div class="feat"><strong>双引擎</strong><span>DeepSeek 质量高 / Google 免费</span></div>
-      <div class="feat"><strong>本地缓存</strong><span>每个视频只翻译一次</span></div>
+      <div class="feat"><strong>Hijacks native captions</strong><span>Intercepts YouTube's /api/timedtext requests at the network layer</span></div>
+      <div class="feat"><strong>Smart splitting</strong><span>Breaks only at punctuation, never mid-sentence</span></div>
+      <div class="feat"><strong>Two engines</strong><span>DeepSeek (quality) or Google (free)</span></div>
+      <div class="feat"><strong>Local cache</strong><span>Each video is translated once, replays read from cache</span></div>
     </div>
 
+    <p class="note">
+      <strong>Note:</strong> This script translates English captions into Chinese. The Tampermonkey menu labels and the in-page debug banner are in Chinese.
+    </p>
+
     <div class="card">
-      <h2>快速上手</h2>
+      <h2>Quick start</h2>
       <ol>
-        <li>装 <a href="https://www.tampermonkey.net/">Tampermonkey</a> 浏览器扩展</li>
-        <li>点上方"一键安装脚本"按钮，确认安装</li>
-        <li>到 <a href="https://platform.deepseek.com/">platform.deepseek.com</a> 拿一个 DeepSeek API Key（充值 10 元能用很久）</li>
-        <li>打开任意 YouTube 视频 → 油猴菜单 → 设置 DeepSeek API Key</li>
-        <li>必须点开 YouTube 自己的 <strong>CC 字幕按钮</strong>，脚本要靠它发字幕请求才能拦截</li>
+        <li>Install the <a href="https://www.tampermonkey.net/">Tampermonkey</a> browser extension</li>
+        <li>Click the "Install Script" button above and confirm</li>
+        <li>Get a DeepSeek API key at <a href="https://platform.deepseek.com/">platform.deepseek.com</a> (top up ¥10 — that lasts a long time)</li>
+        <li>Open any YouTube video → Tampermonkey menu → <code>设置 DeepSeek API Key</code> (Set DeepSeek API Key)</li>
+        <li>Turn on YouTube's <strong>CC subtitle button</strong> — the script intercepts YouTube's caption requests, so CC must be active</li>
       </ol>
     </div>
 
     <div class="card">
-      <h2>没 DeepSeek Key 怎么办</h2>
-      <p>切到 Google 翻译就行，免费、不需要 Key：</p>
+      <h2>No DeepSeek key?</h2>
+      <p>Switch to Google Translate — free, no key required:</p>
       <ul>
-        <li>油猴菜单 → <code>切换引擎 (当前: deepseek)</code> → 改成 google</li>
-        <li>刷新页面</li>
+        <li>Tampermonkey menu → <code>切换引擎 (当前: deepseek)</code> ("Switch engine") → choose google</li>
+        <li>Reload the page</li>
       </ul>
-      <p>翻译质量比 DeepSeek 差一些，但完全够用。</p>
+      <p>Translation quality is a little worse than DeepSeek, but perfectly usable.</p>
     </div>
 
     <div class="card">
-      <h2>更多文档</h2>
+      <h2>Full documentation</h2>
       <p>
-        完整说明、菜单功能、常见问题、隐私声明：
-        <a href="https://github.com/wzy102720/youtube-ai-subtitle">GitHub 仓库 README</a>
+        Complete usage guide, menu reference, FAQ, privacy:
+        <a href="https://github.com/wzy102720/youtube-ai-subtitle">GitHub repo README</a>
       </p>
     </div>
 
     <footer>
-      MIT License · 源码 <a href="https://github.com/wzy102720/youtube-ai-subtitle">github.com/wzy102720/youtube-ai-subtitle</a>
+      MIT License · Source: <a href="https://github.com/wzy102720/youtube-ai-subtitle">github.com/wzy102720/youtube-ai-subtitle</a>
     </footer>
   </div>
 </body>
