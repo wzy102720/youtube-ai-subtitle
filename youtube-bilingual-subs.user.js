@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         YouTube 双语字幕 (DeepSeek/Google 翻译)
 // @namespace    https://github.com/wzy102720/youtube-ai-subtitle
-// @version      0.9.2
-// @description  Intercept YouTube captions, pre-translate, overlay bilingual subs (DeepSeek / Google) · 拦截 YouTube 字幕请求，预先翻译，按时间戳叠加双语显示
+// @version      0.10.0
+// @description  Intercept YouTube captions, translate to any target language, overlay bilingual subs (DeepSeek / Google) · 拦截 YouTube 字幕，翻译到任意目标语言，叠加双语显示
 // @author       wzy102720
 // @match        *://*.youtube.com/*
 // @grant        GM_xmlhttpRequest
@@ -22,34 +22,68 @@
     keyStore: 'deepseek_api_key',
     engineStore: 'translate_engine',
     localeStore: 'ui_locale',
+    targetStore: 'target_lang',
     model: 'deepseek-chat',
     batchSize: 12,
     batchDelayMs: 200,
     debugVisible: true,
-    systemPrompt:
-      '把每行带编号 [N] 的英文翻译成简体中文。要求：' +
-      '1) 输出每行一条，形如 "[N] 中文"，N 与输入对应 ' +
-      '2) 一条输入对应一条输出，不要合并或拆分 ' +
-      '3) 保留英文专有名词、人名、品牌名 ' +
-      '4) 口语化、自然 ' +
-      '5) 不要任何解释、引号、前后缀。',
+    // 系统提示词模板：参数是目标语言的可读名（如 "简体中文 (Simplified Chinese)"）。
+    // 源语言不写死——DeepSeek 完全可以自动识别输入语言。
+    systemPrompt: (tgtName) =>
+      `Translate each [N]-numbered line into ${tgtName}.\n` +
+      `Rules:\n` +
+      `1) Exactly one output per input line. Do not merge or split lines.\n` +
+      `2) Output format: "[N] translated text", where N matches the input number.\n` +
+      `3) Keep proper nouns, person names, and brand names in their original form.\n` +
+      `4) Use natural, conversational language appropriate to the target.\n` +
+      `5) Output translations only — no explanations, no quotes, no prefix or suffix.`,
   };
 
+  // ============ 语言元数据 ============
+  // 目标语言代码 → 可读名（中文+英文括注），用于菜单展示、prompt、DeepSeek 系统提示词。
+  // 没列出的代码也能用（直接当作 ISO 代码传给 Google / 写到 DeepSeek prompt 里）。
+  const LANGS = {
+    'zh-CN': '简体中文 (Simplified Chinese)',
+    'zh-TW': '繁體中文 (Traditional Chinese)',
+    'en':    'English',
+    'ja':    '日本語 (Japanese)',
+    'ko':    '한국어 (Korean)',
+    'es':    'Español (Spanish)',
+    'fr':    'Français (French)',
+    'de':    'Deutsch (German)',
+    'ru':    'Русский (Russian)',
+    'pt':    'Português (Portuguese)',
+    'it':    'Italiano (Italian)',
+    'ar':    'العربية (Arabic)',
+    'hi':    'हिन्दी (Hindi)',
+    'vi':    'Tiếng Việt (Vietnamese)',
+    'th':    'ไทย (Thai)',
+    'id':    'Bahasa Indonesia (Indonesian)',
+  };
+  const langName = (code) => LANGS[code] || code;
+
   // ============ i18n ============
-  // UI 文案的中英双语词典。首次启动用 navigator.language 自动判断（zh* → 中文，否则英文），
-  // 用户可在油猴菜单"语言 / Language"里手动切换；选择存到 GM_setValue 持久化。
-  // GM_registerMenuCommand 注册后无法动态改标签，所以菜单标签的更新需要刷新页面。
+  // UI 文案的中英双语词典。启动时按 GM_setValue 或 navigator.language 选语言；
+  // 用户可通过菜单"语言 / Language"手动切换。脚本源码注释保持中文。
   const I18N = {
     zh: {
       menu_lang:       (cur) => `语言 / Language: ${cur === 'zh' ? '中文' : 'English'}`,
       menu_setKey:     '设置 DeepSeek API Key',
       menu_engine:     (cur) => `切换引擎 (当前: ${cur})`,
+      menu_target:     (cur) => `目标语言 / Target: ${cur}`,
       menu_clearCache: '清除当前视频缓存',
       menu_debug:      '开关调试条',
       prompt_setKey:   '输入 DeepSeek API Key（sk-...）',
+      prompt_target:
+        '输入目标语言代码，例如：\n' +
+        'zh-CN（简体中文） / zh-TW（繁体中文）\n' +
+        'en（英语） / ja（日语） / ko（韩语）\n' +
+        'es / fr / de / ru / pt / it / ar / hi / vi / th / id\n' +
+        '其他 ISO 语言代码也可以直接输入。',
       alert_saved:     '已保存。刷新视频生效。',
       alert_engine:    (e) => `已切换到 ${e}\n刷新视频生效`,
       alert_lang:      (l) => `已切换到 ${l === 'zh' ? '中文' : 'English'}\n刷新页面生效`,
+      alert_target:    (l) => `目标语言切换到 ${l}\n刷新页面生效`,
       alert_cleared:   '已清除',
       dbg_prefix:      '[字幕] ',
       dbg_start:       (id) => `启动，视频 ${id}`,
@@ -57,12 +91,13 @@
       dbg_cacheHit:    (n) => `命中缓存 ${n} 条 ✓`,
       dbg_waiting:     '请打开 CC 按钮，等待拦截字幕…',
       dbg_timeout:     '30 秒内未拦截到字幕',
-      dbg_captured:    (n) => `已拦截 ${n} 字节，解析中…`,
+      dbg_captured:    (n, src) => `已拦截 ${n} 字节 (源: ${src})，解析中…`,
       dbg_empty:       '解析后字幕为空',
-      dbg_parsed:      (n) => `解析 ${n} 条，先显示英文`,
-      dbg_translating: (e) => `开始翻译 (引擎: ${e})`,
+      dbg_parsed:      (n) => `解析 ${n} 条，先显示原文`,
+      dbg_translating: (e, tgt) => `开始翻译 → ${tgt} (引擎: ${e})`,
       dbg_progress:    (d, t) => `翻译中 ${d}/${t}`,
       dbg_done:        '翻译完成 ✓',
+      dbg_sameLang:    (l) => `源语言与目标相同 (${l})，跳过翻译`,
       dbg_transFail:   (m) => `翻译失败：${m}`,
       dbg_scriptErr:   (m) => `脚本异常：${m}`,
       err_noKey:       '未设置 DeepSeek Key',
@@ -71,12 +106,20 @@
       menu_lang:       (cur) => `Language / 语言: ${cur === 'zh' ? '中文' : 'English'}`,
       menu_setKey:     'Set DeepSeek API Key',
       menu_engine:     (cur) => `Switch engine (current: ${cur})`,
+      menu_target:     (cur) => `Target language / 目标: ${cur}`,
       menu_clearCache: 'Clear cache for current video',
       menu_debug:      'Toggle debug banner',
       prompt_setKey:   'Enter DeepSeek API Key (sk-...)',
+      prompt_target:
+        'Enter target language code, for example:\n' +
+        'zh-CN (Simplified Chinese) / zh-TW (Traditional)\n' +
+        'en (English) / ja (Japanese) / ko (Korean)\n' +
+        'es / fr / de / ru / pt / it / ar / hi / vi / th / id\n' +
+        'Other ISO language codes also accepted.',
       alert_saved:     'Saved. Reload the video to take effect.',
       alert_engine:    (e) => `Switched to ${e}\nReload the video to take effect.`,
       alert_lang:      (l) => `Switched to ${l === 'zh' ? '中文' : 'English'}\nReload the page to take effect.`,
+      alert_target:    (l) => `Target language set to ${l}\nReload the page to take effect.`,
       alert_cleared:   'Cleared.',
       dbg_prefix:      '[Subs] ',
       dbg_start:       (id) => `Starting, video ${id}`,
@@ -84,12 +127,13 @@
       dbg_cacheHit:    (n) => `Cache hit: ${n} cues ✓`,
       dbg_waiting:     'Please enable CC button, waiting for captions…',
       dbg_timeout:     'No captions captured within 30s',
-      dbg_captured:    (n) => `Captured ${n} bytes, parsing…`,
+      dbg_captured:    (n, src) => `Captured ${n} bytes (source: ${src}), parsing…`,
       dbg_empty:       'Parsed result empty',
-      dbg_parsed:      (n) => `Parsed ${n} cues, showing English first`,
-      dbg_translating: (e) => `Translating (engine: ${e})`,
+      dbg_parsed:      (n) => `Parsed ${n} cues, showing source first`,
+      dbg_translating: (e, tgt) => `Translating → ${tgt} (engine: ${e})`,
       dbg_progress:    (d, t) => `Translating ${d}/${t}`,
       dbg_done:        'Translation done ✓',
+      dbg_sameLang:    (l) => `Source matches target (${l}), skipping translation`,
       dbg_transFail:   (m) => `Translation failed: ${m}`,
       dbg_scriptErr:   (m) => `Script error: ${m}`,
       err_noKey:       'DeepSeek API key not set',
@@ -102,6 +146,14 @@
   }
   const LOCALE = detectLocale();
   const T = I18N[LOCALE] || I18N.en;
+
+  function detectTarget() {
+    const saved = GM_getValue(CFG.targetStore, '');
+    if (saved) return saved;
+    // 默认跟 UI 语言走：中文 UI 译到 zh-CN，英文 UI 译到 en
+    return LOCALE === 'zh' ? 'zh-CN' : 'en';
+  }
+  const TARGET = detectTarget();
 
   const getKey = () => GM_getValue(CFG.keyStore, '');
   const getEngine = () => GM_getValue(CFG.engineStore, 'deepseek');
@@ -120,9 +172,24 @@
     GM_setValue(CFG.engineStore, next);
     alert(T.alert_engine(next));
   });
+  GM_registerMenuCommand(T.menu_target(TARGET), () => {
+    const v = prompt(T.prompt_target, TARGET);
+    if (v !== null && v.trim()) {
+      const code = v.trim();
+      GM_setValue(CFG.targetStore, code);
+      alert(T.alert_target(langName(code)));
+    }
+  });
   GM_registerMenuCommand(T.menu_clearCache, () => {
     const id = videoId();
-    if (id) { GM_setValue(`yt-trans-${id}`, ''); alert(T.alert_cleared); }
+    if (id) {
+      // 清掉所有目标语言的缓存（同视频可能在多种目标语言下被翻译过）
+      const prefix = `yt-trans-${id}`;
+      // GM_setValue 没有"列出所有 key"的标准 API，所以只清当前 TARGET 的；
+      // 用户切了目标语言后想清旧缓存，再点一次即可。
+      GM_setValue(`${prefix}-${TARGET}`, '');
+      alert(T.alert_cleared);
+    }
   });
   GM_registerMenuCommand(T.menu_debug, () => {
     CFG.debugVisible = !CFG.debugVisible;
@@ -139,6 +206,9 @@
   });
 
   // ============ 拦截 YouTube 字幕请求 ============
+  // 拦截结果存 { body, srcLang }——srcLang 从 URL 的 ?lang= 参数取，用于：
+  //   1) 调试条显示"已拦截源语言为 xx 的字幕"
+  //   2) 源语言 == 目标语言时跳过翻译
   const capturedTranscripts = new Map();
   const captureCallbacks = [];
 
@@ -146,13 +216,18 @@
     if (!body || body.length < 50) return;
     if (!url || !url.includes('/api/timedtext')) return;
     let vid = null;
-    try { vid = new URL(url, location.origin).searchParams.get('v'); } catch (e) {}
+    let srcLang = '';
+    try {
+      const u = new URL(url, location.origin);
+      vid = u.searchParams.get('v');
+      srcLang = u.searchParams.get('lang') || '';
+    } catch (e) {}
     if (!vid) vid = videoId();
     if (!vid) return;
     if (capturedTranscripts.has(vid)) return;
-    capturedTranscripts.set(vid, body);
-    console.log('[yt-bisubs] captured', vid, body.length, 'bytes');
-    captureCallbacks.forEach(cb => { try { cb(vid, body); } catch (e) {} });
+    capturedTranscripts.set(vid, { body, srcLang });
+    console.log('[yt-bisubs] captured', vid, body.length, 'bytes', 'lang=' + (srcLang || '?'));
+    captureCallbacks.forEach(cb => { try { cb(vid, body, srcLang); } catch (e) {} });
   }
 
   (function installInterceptors() {
@@ -222,7 +297,7 @@
   const dbgErr = msg => dbg(msg, '#f77');
 
   // ============ 翻译引擎 ============
-  async function translateDeepSeekBatch(lines, key) {
+  async function translateDeepSeekBatch(lines, key, target) {
     const prompt = lines.map((t, i) => `[${i + 1}] ${t}`).join('\n');
     const r = await gmFetch({
       method: 'POST',
@@ -231,7 +306,7 @@
       data: JSON.stringify({
         model: CFG.model, temperature: 0.3,
         messages: [
-          { role: 'system', content: CFG.systemPrompt },
+          { role: 'system', content: CFG.systemPrompt(langName(target)) },
           { role: 'user', content: prompt },
         ],
       }),
@@ -249,17 +324,18 @@
     return out;
   }
 
-  async function translateGoogleSingle(en) {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(en)}`;
+  async function translateGoogleSingle(src, target) {
+    // sl=auto 让 Google 自动识别源语言，省得我们传错
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(target)}&dt=t&q=${encodeURIComponent(src)}`;
     const r = await gmFetch({ method: 'GET', url, responseType: 'text' });
     if (r.status !== 200) throw new Error(`Google HTTP ${r.status}`);
     const data = JSON.parse(r.responseText);
-    let zh = '';
-    for (const seg of (data[0] || [])) if (Array.isArray(seg) && seg[0]) zh += seg[0];
-    return zh.trim();
+    let out = '';
+    for (const seg of (data[0] || [])) if (Array.isArray(seg) && seg[0]) out += seg[0];
+    return out.trim();
   }
 
-  async function translateCues(cues, onProgress) {
+  async function translateCues(cues, target, onProgress) {
     const engine = getEngine();
     const total = cues.length;
     if (engine === 'google') {
@@ -267,8 +343,8 @@
       const concurrency = 4;
       async function worker(start) {
         for (let i = start; i < total; i += concurrency) {
-          try { cues[i].zh = await translateGoogleSingle(cues[i].en); }
-          catch (e) { cues[i].zh = ''; }
+          try { cues[i].tgt = await translateGoogleSingle(cues[i].src, target); }
+          catch (e) { cues[i].tgt = ''; }
           done++;
           if (done % 5 === 0 || done === total) onProgress?.(done, total);
         }
@@ -279,8 +355,8 @@
       if (!key) throw new Error(T.err_noKey);
       for (let i = 0; i < total; i += CFG.batchSize) {
         const batch = cues.slice(i, i + CFG.batchSize);
-        const tr = await translateDeepSeekBatch(batch.map(c => c.en), key);
-        for (let j = 0; j < batch.length; j++) batch[j].zh = tr[j] || '';
+        const tr = await translateDeepSeekBatch(batch.map(c => c.src), key, target);
+        for (let j = 0; j < batch.length; j++) batch[j].tgt = tr[j] || '';
         onProgress?.(Math.min(i + CFG.batchSize, total), total);
         await sleep(CFG.batchDelayMs);
       }
@@ -299,6 +375,7 @@
   //     · 内容真正不同（如 v0.9.0 漏句的 "lazy dog" 场景）→ 保留为独立 cue
   //   Pass 3 — blocks 展平成 atoms（优先用词级 offset，否则按标点+字符比例），
   //            再按标点累积成 cues
+  // cue 字段：{ start, end, src, tgt } —— src 是原文，tgt 是翻译结果
   const MAX_CHUNK_MS = 10000;
   const HOLD_GAP_S = 1.5;
 
@@ -325,7 +402,7 @@
     const flush = (endMs) => {
       if (!buf.length) return;
       const text = buf.map(s => s.text).join(' ').replace(/\s+/g, ' ').trim();
-      if (text) out.push({ start: bufStartMs / 1000, end: endMs / 1000, en: text, zh: '' });
+      if (text) out.push({ start: bufStartMs / 1000, end: endMs / 1000, src: text, tgt: '' });
       buf = [];
     };
     for (let i = 0; i < atoms.length; i++) {
@@ -466,8 +543,9 @@
   }
 
   // ============ 渲染 ============
+  // 多语言字体栈：覆盖 CJK + 拉丁 + 阿拉伯 + 印地 + 泰文
   let visible = true;
-  let overlay, zhEl, enEl, videoEl;
+  let overlay, tgtEl, srcEl, videoEl;
   let cues = [], lastIdx = -1, rafId = null;
 
   function injectStyle() {
@@ -478,14 +556,20 @@
       #ytdsk-overlay {
         left: 0; right: 0; bottom: 12%;
         text-align: center; pointer-events: none; z-index: 2147483646;
-        font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+                     "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo",
+                     "Malgun Gothic", "Apple SD Gothic Neo",
+                     "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR",
+                     "Noto Sans Arabic", "Noto Sans Devanagari", "Noto Sans Thai",
+                     sans-serif;
         padding: 0 4%;
       }
-      #ytdsk-zh {
+      #ytdsk-tgt {
         font-size: 16px; font-weight: 700; color: #fff; line-height: 1.3;
         text-shadow: 0 0 4px #000, 0 0 8px #000, 1px 1px 2px #000;
       }
-      #ytdsk-en {
+      #ytdsk-src {
         font-size: 10px; color: rgba(255,255,255,0.92); line-height: 1.25;
         margin-top: 2px; font-weight: 500;
         text-shadow: 0 0 4px #000, 0 0 6px #000, 1px 1px 2px #000;
@@ -495,8 +579,8 @@
         visibility: hidden !important;
       }
       @media (max-width: 900px) {
-        #ytdsk-zh { font-size: 12px; }
-        #ytdsk-en { font-size: 9px; }
+        #ytdsk-tgt { font-size: 12px; }
+        #ytdsk-src { font-size: 9px; }
       }
     `;
     document.head.appendChild(s);
@@ -525,10 +609,10 @@
     overlay?.remove();
     overlay = document.createElement('div');
     overlay.id = 'ytdsk-overlay';
-    const _zh = document.createElement('div'); _zh.id = 'ytdsk-zh';
-    const _en = document.createElement('div'); _en.id = 'ytdsk-en';
-    overlay.appendChild(_zh);
-    overlay.appendChild(_en);
+    const _tgt = document.createElement('div'); _tgt.id = 'ytdsk-tgt';
+    const _src = document.createElement('div'); _src.id = 'ytdsk-src';
+    overlay.appendChild(_tgt);
+    overlay.appendChild(_src);
     if (host) {
       if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
       overlay.style.position = 'absolute';
@@ -537,7 +621,7 @@
       overlay.style.position = 'fixed';
       document.body.appendChild(overlay);
     }
-    zhEl = _zh; enEl = _en;
+    tgtEl = _tgt; srcEl = _src;
   }
 
   function tick() {
@@ -561,8 +645,8 @@
     }
     if (show === lastIdx) return;
     lastIdx = show;
-    if (show === -1) { zhEl.textContent = ''; enEl.textContent = ''; }
-    else { zhEl.textContent = cues[show].zh || ''; enEl.textContent = cues[show].en || ''; }
+    if (show === -1) { tgtEl.textContent = ''; srcEl.textContent = ''; }
+    else { tgtEl.textContent = cues[show].tgt || ''; srcEl.textContent = cues[show].src || ''; }
   }
   function startTick() {
     if (rafId) cancelAnimationFrame(rafId);
@@ -590,31 +674,46 @@
       injectStyle();
       ensureOverlay();
 
-      const cacheKey = `yt-trans-${id}`;
+      // 缓存 key 包含目标语言——不同目标用不同缓存
+      const cacheKey = `yt-trans-${id}-${TARGET}`;
       const cached = GM_getValue(cacheKey, '');
       if (cached) {
         try {
-          cues = JSON.parse(cached);
-          dbg(T.dbg_cacheHit(cues.length));
-          startTick();
-          return;
+          const data = JSON.parse(cached);
+          if (data && data.v === 2 && Array.isArray(data.cues)) {
+            cues = data.cues;
+            dbg(T.dbg_cacheHit(cues.length));
+            startTick();
+            return;
+          }
         } catch (_) {}
       }
 
       dbg(T.dbg_waiting);
-      const body = await waitForCapture(id);
-      if (!body) { dbgErr(T.dbg_timeout); return; }
-      dbg(T.dbg_captured(body.length));
+      const captured = await waitForCapture(id);
+      if (!captured) { dbgErr(T.dbg_timeout); return; }
+      const { body, srcLang } = captured;
+      dbg(T.dbg_captured(body.length, srcLang || '?'));
 
       cues = parseBody(body);
       if (!cues.length) { dbgErr(T.dbg_empty); return; }
       dbg(T.dbg_parsed(cues.length));
       startTick();
 
-      dbg(T.dbg_translating(getEngine()));
+      // 源语言 == 目标语言时不调 API：用 src 同时填 tgt，秒出
+      const srcShort = (srcLang || '').toLowerCase().split('-')[0];
+      const tgtShort = TARGET.toLowerCase().split('-')[0];
+      if (srcShort && srcShort === tgtShort) {
+        for (const c of cues) c.tgt = c.src;
+        dbg(T.dbg_sameLang(srcLang || TARGET));
+        GM_setValue(cacheKey, JSON.stringify({ v: 2, srcLang, tgtLang: TARGET, cues }));
+        return;
+      }
+
+      dbg(T.dbg_translating(getEngine(), langName(TARGET)));
       try {
-        await translateCues(cues, (d, t) => dbg(T.dbg_progress(d, t)));
-        GM_setValue(cacheKey, JSON.stringify(cues));
+        await translateCues(cues, TARGET, (d, t) => dbg(T.dbg_progress(d, t)));
+        GM_setValue(cacheKey, JSON.stringify({ v: 2, srcLang, tgtLang: TARGET, cues }));
         dbg(T.dbg_done);
         setTimeout(() => {
           const d = document.getElementById('ytdsk-debug');
@@ -635,8 +734,8 @@
     return new Promise(resolve => {
       if (capturedTranscripts.has(id)) { resolve(capturedTranscripts.get(id)); return; }
       let resolved = false;
-      const cb = (vid, body) => {
-        if (vid === id && !resolved) { resolved = true; resolve(body); }
+      const cb = (vid, body, srcLang) => {
+        if (vid === id && !resolved) { resolved = true; resolve({ body, srcLang }); }
       };
       captureCallbacks.push(cb);
       setTimeout(() => { if (!resolved) { resolved = true; resolve(null); } }, 30000);

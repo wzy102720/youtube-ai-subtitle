@@ -2,7 +2,7 @@
 
 # YouTube Bilingual Subtitles (DeepSeek / Google Translation)
 
-A Tampermonkey userscript that **intercepts YouTube's own caption requests**, batch-translates them into Chinese, and overlays bilingual subtitles synchronized to the video's timeline.
+A Tampermonkey userscript that **intercepts YouTube's own caption requests**, translates them into any target language you pick, and overlays bilingual subtitles synchronized to the video's timeline.
 
 > No subtitle extensions, no proxy server — translation goes directly to the DeepSeek or Google API of your choice.
 
@@ -11,9 +11,10 @@ A Tampermonkey userscript that **intercepts YouTube's own caption requests**, ba
 - **Hijacks native captions**: hooks YouTube's `/api/timedtext` requests at the network layer, no DOM scraping
 - **Smart sentence splitting**: accumulates across events, **only breaks at punctuation** — never mid-sentence
 - **Two engines**: DeepSeek (high quality, batched prompts, preserves proper nouns) or Google (free, no API key required, fast)
-- **Local caching**: each video is translated once, replays read straight from cache
+- **Local caching**: each video is translated once per target language, replays read straight from cache
 - **Direct connection**: the script talks to the official APIs directly; nothing routed through any third party
 - **Bilingual UI** (v0.9.2+): menu commands and the in-page debug banner auto-detect your browser language (Chinese for `zh-*`, English otherwise); a Tampermonkey menu entry lets you flip it manually
+- **Any source → any target** (v0.10.0+): source language is read straight from YouTube's caption metadata (works for English, Spanish, Japanese, Korean…); target language is your choice via a menu prompt (`zh-CN`, `en`, `ja`, `ko`, `es`, `fr`, `de`, `ru`, `pt`, `it`, `ar`, `hi`, `vi`, `th`, `id`, or any other ISO code). If source equals target, translation is skipped automatically.
 
 ## Install
 
@@ -71,9 +72,10 @@ The menu labels follow your selected UI language. The English versions are shown
 
 | Menu command (English UI) | What it does |
 | --- | --- |
-| Language / 语言: English | Toggle between English and 中文; reloads needed |
+| Language / 语言: English | Toggle UI language between English and 中文; reload required |
 | Set DeepSeek API Key | Set or change your DeepSeek API key |
 | Switch engine (current: xxx) | Toggle between DeepSeek and Google |
+| Target language / 目标: xxx | Open a prompt to change the translation target (e.g. `zh-CN`, `en`, `ja`); persists across reloads |
 | Clear cache for current video | Clear the cached translation for the current video — required after editing the script logic, otherwise stale cues persist |
 | Toggle debug banner | Show / hide the green debug banner at the top of the page |
 
@@ -125,6 +127,13 @@ A: A 10-minute video uses roughly 2000–3000 input tokens plus a similar output
 
 ## Changelog
 
+- **0.10.0** Configurable translation pipeline:
+  - Target language is now user-selectable via a new `Target language / 目标` menu command (defaults to `zh-CN` for Chinese UI, `en` for English UI)
+  - Source language is auto-detected from YouTube's caption URL (`?lang=` parameter); displayed in the debug banner
+  - DeepSeek prompt and Google `tl=` are dynamically built from the chosen target
+  - When source equals target (same language), translation is skipped — the original captions become both lines instantly
+  - Cue data fields renamed `en`/`zh` → `src`/`tgt`; CSS IDs renamed to match; multi-script font stack added (CJK + Latin + Arabic + Devanagari + Thai)
+  - Cache key now includes the target language, so switching targets won't reuse stale translations
 - **0.9.2** Added bilingual UI: menus, prompts, alerts and debug banner now follow `navigator.language` (Chinese for `zh-*`, English elsewhere). Added a `Language / 语言` menu entry to flip manually; choice persists via `GM_setValue`. Script source comments remain Chinese.
 - **0.9.1** Rewrote the dedup pass in the subtitle parser to fix the "YouTube CC shows the sentence but the overlay skips it" bug:
   - Recognizes `aAppend === 1` rolling-caption frames in json3 (previously double-counted into the accumulator)
