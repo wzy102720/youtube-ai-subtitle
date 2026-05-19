@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube 双语字幕 (DeepSeek/Google 翻译)
 // @namespace    https://github.com/wzy102720/youtube-ai-subtitle
-// @version      0.9.0
+// @version      0.9.1
 // @description  拦截 YouTube 自己的字幕请求，预先翻译，按时间戳叠加双语显示
 // @author       you
 // @match        *://*.youtube.com/*
@@ -213,133 +213,174 @@
   }
 
   // ============ 字幕解析 ============
-  // 规则：
-  //   1) 只在标点处切：句末标点 ( . ! ? 。 ！ ？ ) 或逗号类 ( , ， ; ； : ： )
-  //   2) 跨 event 累积，绝不在 event 边界强制切（这是 YouTube ASR 自动字幕容易把
-  //      一句话切到多个 event 里的根源——例如 "I also teach around" + "50 students"）
-  //   3) 兜底：单段累积超过 MAX_CHUNK_MS 强制切，防止无标点字幕一直不出
+  // 三阶段：
+  //   Pass 1 — events → display blocks
+  //     · json3 的 aAppend === 1 帧合入上一 block（ASR 滚动字幕的正确处理方式）
+  //     · 每个 block 记录 { startMs, endMs, text, atoms }
+  //   Pass 2 — 在 blocks 序列上去重重叠：
+  //     · 完全相同 text → 合并时间
+  //     · 后者以前者为前缀（rolling caption 增长）→ 用后者替换前者
+  //     · 后者是前者尾部（rolling caption 重发）→ 丢弃后者
+  //     · 内容真正不同（如 v0.9.0 漏句的 "lazy dog" 场景）→ 保留为独立 cue
+  //   Pass 3 — blocks 展平成 atoms（优先用词级 offset，否则按标点+字符比例），
+  //            再按标点累积成 cues
   const MAX_CHUNK_MS = 10000;
+  const HOLD_GAP_S = 1.5;
 
-  function parseJsonEvents(j) {
-    // —— 第 1 步：把所有 event 的内容展平成一个带绝对时间戳的全局序列 ——
-    const allSegs = [];
-    let lastEventEndMs = -1;
-
-    for (const e of j.events || []) {
-      if (!e.segs || !e.segs.length) continue;
-      const segs = e.segs.filter(s => s.utf8 && s.utf8.trim());
-      if (!segs.length) continue;
-      const eventStart = e.tStartMs || 0;
-      const eventDur = e.dDurationMs || 2000;
-      const eventEnd = eventStart + eventDur;
-
-      // 跳过完全嵌套在前一个 event 里的（ASR 滚动字幕的重复）
-      if (eventEnd <= lastEventEndMs) continue;
-      lastEventEndMs = eventEnd;
-
-      const hasOffsets = segs.some(s => (s.tOffsetMs || 0) > 0);
-
-      if (!hasOffsets) {
-        // 没有词级时间戳：把整段文本按标点先切一遍，按字符比例分配时间
-        const full = segs.map(s => s.utf8 || '').join('').replace(/\s+/g, ' ').trim();
-        if (!full) continue;
-
-        // 逐字符扫描，遇到标点就把累积内容作为一段（包含标点）
-        const parts = [];
-        let acc = '';
-        for (const ch of full) {
-          acc += ch;
-          if (/[.!?。！？,，;；:：]/.test(ch)) {
-            const p = acc.trim();
-            if (p) parts.push(p);
-            acc = '';
-          }
-        }
-        const tail = acc.trim();
-        if (tail) parts.push(tail);
-        if (parts.length === 0) parts.push(full);
-
-        const totalLen = parts.reduce((a, s) => a + s.length, 0) || 1;
-        let cur = 0;
-        for (const p of parts) {
-          const ms = eventDur * (p.length / totalLen);
-          allSegs.push({
-            startMs: eventStart + cur,
-            endMs: eventStart + cur + ms,
-            text: p,
-          });
-          cur += ms;
-        }
-      } else {
-        // 有词级时间戳：保留每个 seg 作为一个片段，时间用相邻 seg 的 offset 推算
-        for (let i = 0; i < segs.length; i++) {
-          const startOff = segs[i].tOffsetMs || 0;
-          const endOff = i + 1 < segs.length ? (segs[i + 1].tOffsetMs || 0) : eventDur;
-          allSegs.push({
-            startMs: eventStart + startOff,
-            endMs: eventStart + endOff,
-            text: segs[i].utf8 || '',
-          });
-        }
+  function splitByPunctChar(full) {
+    const parts = [];
+    let acc = '';
+    for (const ch of full) {
+      acc += ch;
+      if (/[.!?。！？,，;；:：]/.test(ch)) {
+        const p = acc.trim();
+        if (p) parts.push(p);
+        acc = '';
       }
     }
+    const tail = acc.trim();
+    if (tail) parts.push(tail);
+    return parts;
+  }
 
-    // —— 第 2 步：在全局序列上累积切割。只在标点处切；兜底 MAX_CHUNK_MS ——
+  function chunkAtomsToCues(atoms) {
     const out = [];
     let buf = [];
     let bufStartMs = 0;
-
     const flush = (endMs) => {
       if (!buf.length) return;
       const text = buf.map(s => s.text).join(' ').replace(/\s+/g, ' ').trim();
-      if (text) {
-        out.push({
-          start: bufStartMs / 1000,
-          end: endMs / 1000,
-          en: text,
-          zh: '',
-        });
-      }
+      if (text) out.push({ start: bufStartMs / 1000, end: endMs / 1000, en: text, zh: '' });
       buf = [];
     };
-
-    for (let i = 0; i < allSegs.length; i++) {
-      const s = allSegs[i];
+    for (let i = 0; i < atoms.length; i++) {
+      const s = atoms[i];
       if (buf.length === 0) bufStartMs = s.startMs;
       buf.push(s);
-
       const endsPunct = /[.!?。！？,，;；:：]\s*$/.test(s.text);
       const chunkMs = s.endMs - bufStartMs;
-
-      if (endsPunct || chunkMs > MAX_CHUNK_MS) {
-        flush(s.endMs);
-      }
+      if (endsPunct || chunkMs > MAX_CHUNK_MS) flush(s.endMs);
     }
-    // 最后剩下的也输出
     if (buf.length) flush(buf[buf.length - 1].endMs);
-
     out.sort((a, b) => a.start - b.start);
     return out;
   }
 
+  function dedupBlocks(blocks) {
+    blocks.sort((a, b) => a.startMs - b.startMs);
+    const out = [];
+    for (const b of blocks) {
+      if (!out.length) { out.push(b); continue; }
+      const prev = out[out.length - 1];
+      const overlaps = b.startMs < prev.endMs;
+      if (!overlaps) { out.push(b); continue; }
+      if (b.text === prev.text) {
+        prev.endMs = Math.max(prev.endMs, b.endMs);
+        continue;
+      }
+      if (b.text.length > prev.text.length && b.text.startsWith(prev.text)) {
+        out[out.length - 1] = {
+          startMs: prev.startMs,
+          endMs: Math.max(prev.endMs, b.endMs),
+          text: b.text,
+          atoms: (b.atoms && b.atoms.length) ? b.atoms : prev.atoms,
+        };
+        continue;
+      }
+      if (prev.text.length > b.text.length && prev.text.endsWith(b.text)) {
+        prev.endMs = Math.max(prev.endMs, b.endMs);
+        continue;
+      }
+      out.push(b);
+    }
+    return out;
+  }
+
+  function blockToAtoms(b) {
+    if (b.atoms && b.atoms.length > 1) {
+      const out = [];
+      for (let i = 0; i < b.atoms.length; i++) {
+        const a = b.atoms[i];
+        const next = i + 1 < b.atoms.length ? b.atoms[i + 1] : null;
+        out.push({
+          startMs: a.startMs,
+          endMs: next ? next.startMs : b.endMs,
+          text: a.text,
+        });
+      }
+      return out;
+    }
+    const parts = splitByPunctChar(b.text);
+    const list = parts.length ? parts : [b.text];
+    const totalLen = list.reduce((a, s) => a + s.length, 0) || 1;
+    const dur = Math.max(b.endMs - b.startMs, 500);
+    const out = [];
+    let cur = 0;
+    for (const p of list) {
+      const ms = dur * (p.length / totalLen);
+      out.push({ startMs: b.startMs + cur, endMs: b.startMs + cur + ms, text: p });
+      cur += ms;
+    }
+    return out;
+  }
+
+  function parseJsonEvents(j) {
+    const blocks = [];
+    let cur = null;
+    for (const e of j.events || []) {
+      if (!e.segs || !e.segs.length) continue;
+      const segs = e.segs.filter(s => s.utf8 && s.utf8.trim());
+      if (!segs.length) continue;
+      const eStart = e.tStartMs || 0;
+      const eDur = e.dDurationMs || 2000;
+      const eEnd = eStart + eDur;
+      const text = segs.map(s => s.utf8).join('').replace(/\s+/g, ' ').trim();
+      if (!text) continue;
+      const hasOffsets = segs.some(s => (s.tOffsetMs || 0) > 0);
+      const newAtoms = hasOffsets
+        ? segs.map(s => ({ startMs: eStart + (s.tOffsetMs || 0), text: s.utf8 }))
+        : [{ startMs: eStart, text }];
+
+      if (e.aAppend === 1 && cur) {
+        cur.endMs = Math.max(cur.endMs, eEnd);
+        cur.text = (cur.text + ' ' + text).replace(/\s+/g, ' ').trim();
+        cur.atoms.push(...newAtoms);
+      } else {
+        if (cur) blocks.push(cur);
+        cur = { startMs: eStart, endMs: eEnd, text, atoms: newAtoms };
+      }
+    }
+    if (cur) blocks.push(cur);
+
+    const merged = dedupBlocks(blocks);
+    const atoms = [];
+    for (const b of merged) atoms.push(...blockToAtoms(b));
+    return chunkAtomsToCues(atoms);
+  }
+
   function parseXmlEvents(xml) {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
-    const out = [];
     let nodes = doc.querySelectorAll('p');
-    let isSrv3 = nodes.length > 0;
+    const isSrv3 = nodes.length > 0;
     if (!isSrv3) nodes = doc.querySelectorAll('text');
+
+    const blocks = [];
     for (const el of nodes) {
       const tAttr = el.getAttribute('t') || el.getAttribute('start') || '0';
       const dAttr = el.getAttribute('d') || el.getAttribute('dur') || '2000';
       const t = parseFloat(tAttr);
       const d = parseFloat(dAttr);
-      const start = isSrv3 ? t / 1000 : t;
-      const end = isSrv3 ? (t + d) / 1000 : (t + d);
-      const txt = (el.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!txt) continue;
-      out.push({ start, end, en: txt, zh: '' });
+      const startMs = isSrv3 ? t : t * 1000;
+      const dur = isSrv3 ? d : d * 1000;
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text) continue;
+      blocks.push({ startMs, endMs: startMs + dur, text, atoms: null });
     }
-    return out;
+
+    const merged = dedupBlocks(blocks);
+    const atoms = [];
+    for (const b of merged) atoms.push(...blockToAtoms(b));
+    return chunkAtomsToCues(atoms);
   }
 
   function parseBody(body) {
@@ -428,17 +469,25 @@
     rafId = requestAnimationFrame(tick);
     if (!videoEl || !cues.length || !visible) return;
     const t = videoEl.currentTime;
+    // 找到 start <= t 的最大 idx —— 即"最近开始的那条 cue"。
+    // 滚动字幕 / 内容真正重叠 时这能让最新版本胜出，避免被旧版本覆盖显示。
     let lo = 0, hi = cues.length - 1, idx = -1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (cues[mid].end < t) lo = mid + 1;
-      else if (cues[mid].start > t) hi = mid - 1;
-      else { idx = mid; break; }
+      if (cues[mid].start <= t) { idx = mid; lo = mid + 1; }
+      else hi = mid - 1;
     }
-    if (idx === lastIdx) return;
-    lastIdx = idx;
-    if (idx === -1) { zhEl.textContent = ''; enEl.textContent = ''; }
-    else { zhEl.textContent = cues[idx].zh || ''; enEl.textContent = cues[idx].en || ''; }
+    let show = -1;
+    if (idx !== -1) {
+      const cue = cues[idx];
+      const nextStart = idx + 1 < cues.length ? cues[idx + 1].start : Infinity;
+      // 自然区间内显示；区间外但在 HOLD_GAP_S 内且未到下一条，延长显示跨过小间隙
+      if (t <= cue.end || (t <= cue.end + HOLD_GAP_S && t < nextStart)) show = idx;
+    }
+    if (show === lastIdx) return;
+    lastIdx = show;
+    if (show === -1) { zhEl.textContent = ''; enEl.textContent = ''; }
+    else { zhEl.textContent = cues[show].zh || ''; enEl.textContent = cues[show].en || ''; }
   }
   function startTick() {
     if (rafId) cancelAnimationFrame(rafId);
