@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         YouTube 双语字幕 (DeepSeek/Google 翻译)
 // @namespace    https://github.com/wzy102720/youtube-ai-subtitle
-// @version      0.9.1
-// @description  拦截 YouTube 自己的字幕请求，预先翻译，按时间戳叠加双语显示
-// @author       you
+// @version      0.9.2
+// @description  Intercept YouTube captions, pre-translate, overlay bilingual subs (DeepSeek / Google) · 拦截 YouTube 字幕请求，预先翻译，按时间戳叠加双语显示
+// @author       wzy102720
 // @match        *://*.youtube.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
@@ -21,6 +21,7 @@
   const CFG = {
     keyStore: 'deepseek_api_key',
     engineStore: 'translate_engine',
+    localeStore: 'ui_locale',
     model: 'deepseek-chat',
     batchSize: 12,
     batchDelayMs: 200,
@@ -34,22 +35,96 @@
       '5) 不要任何解释、引号、前后缀。',
   };
 
+  // ============ i18n ============
+  // UI 文案的中英双语词典。首次启动用 navigator.language 自动判断（zh* → 中文，否则英文），
+  // 用户可在油猴菜单"语言 / Language"里手动切换；选择存到 GM_setValue 持久化。
+  // GM_registerMenuCommand 注册后无法动态改标签，所以菜单标签的更新需要刷新页面。
+  const I18N = {
+    zh: {
+      menu_lang:       (cur) => `语言 / Language: ${cur === 'zh' ? '中文' : 'English'}`,
+      menu_setKey:     '设置 DeepSeek API Key',
+      menu_engine:     (cur) => `切换引擎 (当前: ${cur})`,
+      menu_clearCache: '清除当前视频缓存',
+      menu_debug:      '开关调试条',
+      prompt_setKey:   '输入 DeepSeek API Key（sk-...）',
+      alert_saved:     '已保存。刷新视频生效。',
+      alert_engine:    (e) => `已切换到 ${e}\n刷新视频生效`,
+      alert_lang:      (l) => `已切换到 ${l === 'zh' ? '中文' : 'English'}\n刷新页面生效`,
+      alert_cleared:   '已清除',
+      dbg_prefix:      '[字幕] ',
+      dbg_start:       (id) => `启动，视频 ${id}`,
+      dbg_noVideo:     '未找到视频元素',
+      dbg_cacheHit:    (n) => `命中缓存 ${n} 条 ✓`,
+      dbg_waiting:     '请打开 CC 按钮，等待拦截字幕…',
+      dbg_timeout:     '30 秒内未拦截到字幕',
+      dbg_captured:    (n) => `已拦截 ${n} 字节，解析中…`,
+      dbg_empty:       '解析后字幕为空',
+      dbg_parsed:      (n) => `解析 ${n} 条，先显示英文`,
+      dbg_translating: (e) => `开始翻译 (引擎: ${e})`,
+      dbg_progress:    (d, t) => `翻译中 ${d}/${t}`,
+      dbg_done:        '翻译完成 ✓',
+      dbg_transFail:   (m) => `翻译失败：${m}`,
+      dbg_scriptErr:   (m) => `脚本异常：${m}`,
+      err_noKey:       '未设置 DeepSeek Key',
+    },
+    en: {
+      menu_lang:       (cur) => `Language / 语言: ${cur === 'zh' ? '中文' : 'English'}`,
+      menu_setKey:     'Set DeepSeek API Key',
+      menu_engine:     (cur) => `Switch engine (current: ${cur})`,
+      menu_clearCache: 'Clear cache for current video',
+      menu_debug:      'Toggle debug banner',
+      prompt_setKey:   'Enter DeepSeek API Key (sk-...)',
+      alert_saved:     'Saved. Reload the video to take effect.',
+      alert_engine:    (e) => `Switched to ${e}\nReload the video to take effect.`,
+      alert_lang:      (l) => `Switched to ${l === 'zh' ? '中文' : 'English'}\nReload the page to take effect.`,
+      alert_cleared:   'Cleared.',
+      dbg_prefix:      '[Subs] ',
+      dbg_start:       (id) => `Starting, video ${id}`,
+      dbg_noVideo:     'Video element not found',
+      dbg_cacheHit:    (n) => `Cache hit: ${n} cues ✓`,
+      dbg_waiting:     'Please enable CC button, waiting for captions…',
+      dbg_timeout:     'No captions captured within 30s',
+      dbg_captured:    (n) => `Captured ${n} bytes, parsing…`,
+      dbg_empty:       'Parsed result empty',
+      dbg_parsed:      (n) => `Parsed ${n} cues, showing English first`,
+      dbg_translating: (e) => `Translating (engine: ${e})`,
+      dbg_progress:    (d, t) => `Translating ${d}/${t}`,
+      dbg_done:        'Translation done ✓',
+      dbg_transFail:   (m) => `Translation failed: ${m}`,
+      dbg_scriptErr:   (m) => `Script error: ${m}`,
+      err_noKey:       'DeepSeek API key not set',
+    },
+  };
+  function detectLocale() {
+    const saved = GM_getValue(CFG.localeStore, '');
+    if (saved === 'zh' || saved === 'en') return saved;
+    return (navigator.language || 'en').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+  }
+  const LOCALE = detectLocale();
+  const T = I18N[LOCALE] || I18N.en;
+
   const getKey = () => GM_getValue(CFG.keyStore, '');
   const getEngine = () => GM_getValue(CFG.engineStore, 'deepseek');
-  GM_registerMenuCommand('设置 DeepSeek API Key', () => {
-    const v = prompt('输入 DeepSeek API Key（sk-...）', getKey());
-    if (v !== null) { GM_setValue(CFG.keyStore, v.trim()); alert('已保存。刷新视频生效。'); }
+
+  GM_registerMenuCommand(T.menu_lang(LOCALE), () => {
+    const next = LOCALE === 'zh' ? 'en' : 'zh';
+    GM_setValue(CFG.localeStore, next);
+    alert(T.alert_lang(next));
   });
-  GM_registerMenuCommand('切换引擎 (当前: ' + getEngine() + ')', () => {
+  GM_registerMenuCommand(T.menu_setKey, () => {
+    const v = prompt(T.prompt_setKey, getKey());
+    if (v !== null) { GM_setValue(CFG.keyStore, v.trim()); alert(T.alert_saved); }
+  });
+  GM_registerMenuCommand(T.menu_engine(getEngine()), () => {
     const next = getEngine() === 'deepseek' ? 'google' : 'deepseek';
     GM_setValue(CFG.engineStore, next);
-    alert(`已切换到 ${next}\n刷新视频生效`);
+    alert(T.alert_engine(next));
   });
-  GM_registerMenuCommand('清除当前视频缓存', () => {
+  GM_registerMenuCommand(T.menu_clearCache, () => {
     const id = videoId();
-    if (id) { GM_setValue(`yt-trans-${id}`, ''); alert('已清除'); }
+    if (id) { GM_setValue(`yt-trans-${id}`, ''); alert(T.alert_cleared); }
   });
-  GM_registerMenuCommand('开关调试条', () => {
+  GM_registerMenuCommand(T.menu_debug, () => {
     CFG.debugVisible = !CFG.debugVisible;
     const d = document.getElementById('ytdsk-debug');
     if (d) d.style.display = CFG.debugVisible ? '' : 'none';
@@ -76,7 +151,7 @@
     if (!vid) return;
     if (capturedTranscripts.has(vid)) return;
     capturedTranscripts.set(vid, body);
-    console.log('[YT双语] 已拦截字幕', vid, body.length, '字节');
+    console.log('[yt-bisubs] captured', vid, body.length, 'bytes');
     captureCallbacks.forEach(cb => { try { cb(vid, body); } catch (e) {} });
   }
 
@@ -94,7 +169,7 @@
           return p;
         };
       }
-    } catch (e) { console.warn('[YT双语] fetch 拦截失败', e); }
+    } catch (e) { console.warn('[yt-bisubs] fetch hook failed', e); }
 
     try {
       const proto = win.XMLHttpRequest && win.XMLHttpRequest.prototype;
@@ -111,10 +186,10 @@
           return origOpen.apply(this, arguments);
         };
       }
-    } catch (e) { console.warn('[YT双语] XHR 拦截失败', e); }
+    } catch (e) { console.warn('[yt-bisubs] XHR hook failed', e); }
   })();
 
-  // ============ 启动（简单版本，回到 v0.7.0 的可靠模式） ============
+  // ============ 启动 ============
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', main);
   } else {
@@ -141,8 +216,8 @@
   function dbg(msg, color) {
     ensureDebug();
     const d = document.getElementById('ytdsk-debug');
-    if (d) { d.style.color = color || '#0f0'; d.textContent = '[字幕] ' + msg; }
-    console.log('[YT双语]', msg);
+    if (d) { d.style.color = color || '#0f0'; d.textContent = T.dbg_prefix + msg; }
+    console.log('[yt-bisubs]', msg);
   }
   const dbgErr = msg => dbg(msg, '#f77');
 
@@ -201,7 +276,7 @@
       await Promise.all(Array.from({length: concurrency}, (_, k) => worker(k)));
     } else {
       const key = getKey();
-      if (!key) throw new Error('未设置 DeepSeek Key');
+      if (!key) throw new Error(T.err_noKey);
       for (let i = 0; i < total; i += CFG.batchSize) {
         const batch = cues.slice(i, i + CFG.batchSize);
         const tr = await translateDeepSeekBatch(batch.map(c => c.en), key);
@@ -504,13 +579,13 @@
     try {
       curId = id;
       cues = []; lastIdx = -1; videoEl = null;
-      dbg('启动，视频 ' + id);
+      dbg(T.dbg_start(id));
 
       for (let i = 0; i < 80 && !videoEl; i++) {
         videoEl = findMainVideo();
         if (!videoEl) await sleep(250);
       }
-      if (!videoEl) { dbgErr('未找到视频元素'); return; }
+      if (!videoEl) { dbgErr(T.dbg_noVideo); return; }
 
       injectStyle();
       ensureOverlay();
@@ -520,37 +595,37 @@
       if (cached) {
         try {
           cues = JSON.parse(cached);
-          dbg(`命中缓存 ${cues.length} 条 ✓`);
+          dbg(T.dbg_cacheHit(cues.length));
           startTick();
           return;
         } catch (_) {}
       }
 
-      dbg('请打开 CC 按钮，等待拦截字幕…');
+      dbg(T.dbg_waiting);
       const body = await waitForCapture(id);
-      if (!body) { dbgErr('30 秒内未拦截到字幕'); return; }
-      dbg(`已拦截 ${body.length} 字节，解析中…`);
+      if (!body) { dbgErr(T.dbg_timeout); return; }
+      dbg(T.dbg_captured(body.length));
 
       cues = parseBody(body);
-      if (!cues.length) { dbgErr('解析后字幕为空'); return; }
-      dbg(`解析 ${cues.length} 条，先显示英文`);
+      if (!cues.length) { dbgErr(T.dbg_empty); return; }
+      dbg(T.dbg_parsed(cues.length));
       startTick();
 
-      dbg(`开始翻译 (引擎: ${getEngine()})`);
+      dbg(T.dbg_translating(getEngine()));
       try {
-        await translateCues(cues, (d, t) => dbg(`翻译中 ${d}/${t}`));
+        await translateCues(cues, (d, t) => dbg(T.dbg_progress(d, t)));
         GM_setValue(cacheKey, JSON.stringify(cues));
-        dbg('翻译完成 ✓');
+        dbg(T.dbg_done);
         setTimeout(() => {
           const d = document.getElementById('ytdsk-debug');
           if (d) d.style.opacity = '0.3';
         }, 3000);
       } catch (err) {
-        dbgErr('翻译失败：' + (err.message || err));
+        dbgErr(T.dbg_transFail(err.message || err));
       }
     } catch (err) {
-      dbgErr('脚本异常：' + (err.message || err));
-      console.error('[YT双语]', err);
+      dbgErr(T.dbg_scriptErr(err.message || err));
+      console.error('[yt-bisubs]', err);
     } finally {
       processing = false;
     }

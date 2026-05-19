@@ -13,6 +13,7 @@ A Tampermonkey userscript that **intercepts YouTube's own caption requests**, ba
 - **Two engines**: DeepSeek (high quality, batched prompts, preserves proper nouns) or Google (free, no API key required, fast)
 - **Local caching**: each video is translated once, replays read straight from cache
 - **Direct connection**: the script talks to the official APIs directly; nothing routed through any third party
+- **Bilingual UI** (v0.9.2+): menu commands and the in-page debug banner auto-detect your browser language (Chinese for `zh-*`, English otherwise); a Tampermonkey menu entry lets you flip it manually
 
 ## Install
 
@@ -66,12 +67,15 @@ The overlay uses bold white Chinese text on top with a black stroke shadow, with
 
 ## Tampermonkey menu commands
 
-| Menu label (Chinese) | What it does |
+The menu labels follow your selected UI language. The English versions are shown below; the Chinese equivalents are in [README.zh-CN.md](README.zh-CN.md).
+
+| Menu command (English UI) | What it does |
 | --- | --- |
-| 设置 DeepSeek API Key | Set or change your DeepSeek API key |
-| 切换引擎 (当前: xxx) | Toggle between DeepSeek and Google |
-| 清除当前视频缓存 | Clear the cached translation for the current video — required after editing the script logic, otherwise stale cues persist |
-| 开关调试条 | Toggle the green debug banner at the top of the page |
+| Language / 语言: English | Toggle between English and 中文; reloads needed |
+| Set DeepSeek API Key | Set or change your DeepSeek API key |
+| Switch engine (current: xxx) | Toggle between DeepSeek and Google |
+| Clear cache for current video | Clear the cached translation for the current video — required after editing the script logic, otherwise stale cues persist |
+| Toggle debug banner | Show / hide the green debug banner at the top of the page |
 
 ## Subtitle splitting rules (v0.9.1)
 
@@ -121,6 +125,7 @@ A: A 10-minute video uses roughly 2000–3000 input tokens plus a similar output
 
 ## Changelog
 
+- **0.9.2** Added bilingual UI: menus, prompts, alerts and debug banner now follow `navigator.language` (Chinese for `zh-*`, English elsewhere). Added a `Language / 语言` menu entry to flip manually; choice persists via `GM_setValue`. Script source comments remain Chinese.
 - **0.9.1** Rewrote the dedup pass in the subtitle parser to fix the "YouTube CC shows the sentence but the overlay skips it" bug:
   - Recognizes `aAppend === 1` rolling-caption frames in json3 (previously double-counted into the accumulator)
   - Three-way overlap dedup (exact duplicate / prefix-extension rolling / suffix-replay rolling); never discards events with genuinely different content (the root cause of the v0.9.0 "lazy dog" drop)
