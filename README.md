@@ -46,25 +46,25 @@ DeepSeek's translation quality is noticeably better than Google's, and pricing i
 
 1. Open any YouTube video
 2. Click the Tampermonkey icon in your browser toolbar
-3. In the "YouTube 双语字幕" submenu, click **设置 DeepSeek API Key** ("Set DeepSeek API Key")
+3. In the script's submenu, click **Set DeepSeek API Key**
 4. Paste your `sk-...` key and confirm
 5. Reload the page
 
 ### Or switch to Google Translate (no key, free)
 
-1. Tampermonkey menu → **切换引擎** ("Switch engine") → confirm
+1. Tampermonkey menu → **Switch engine** → confirm
 2. Reload the page
 
 ## Usage
 
 1. Open any YouTube video
 2. **Turn on YouTube's own CC subtitle button** — the script intercepts caption requests, so the CC button must be active for any request to fire
-3. A green debug banner appears at the top of the page: "请打开 CC 按钮，等待拦截字幕…" ("please enable CC, waiting for captions")
-4. Once captured, the English text appears immediately while translation runs in the background
-5. When translation completes, captions become bilingual (Chinese on top, English below)
+3. A green debug banner appears at the top: "Please enable CC button, waiting for captions…"
+4. Once captured, the original captions appear immediately while translation runs in the background
+5. When translation completes, captions become bilingual (target language on top, original below)
 6. The debug banner fades out after a few seconds
 
-The overlay uses bold white Chinese text on top with a black stroke shadow, with smaller semi-transparent English below — readable on both bright and dark frames.
+The overlay shows the translation in bold white text on top with a black stroke shadow, and the original captions in smaller semi-transparent text below — readable on both bright and dark frames.
 
 ## Tampermonkey menu commands
 
@@ -98,23 +98,23 @@ const MAX_CHUNK_MS = 10000;  // fallback duration in milliseconds
 
 ## FAQ
 
-**Q: Debug banner says "30 秒内未拦截到字幕" (no captions captured within 30s)**
+**Q: Debug banner says "No captions captured within 30s"**
 A: You forgot to enable YouTube's own CC button. The script hijacks caption requests — if CC is off, YouTube never makes the request.
 
-**Q: Says "解析后字幕为空" (parsed captions empty)**
+**Q: Banner says "Parsed result empty"**
 A: The video may use an unusual caption format. Open DevTools console and check for errors; please file an issue with the video URL.
 
 **Q: Translation quality is bad or translation fails**
 A: Check your DeepSeek balance, or switch to the Google engine to compare.
 
 **Q: I edited the script but nothing changed**
-A: Save in Tampermonkey (Ctrl+S) → **close and reopen** the YouTube tab (not just reload) → menu "清除当前视频缓存" ("clear current video cache").
+A: Save in Tampermonkey (Ctrl+S) → **close and reopen** the YouTube tab (not just reload) → menu **Clear cache for current video**.
 
 **Q: Subtitle position on the video is off**
 A: Edit `#ytdsk-overlay { bottom: 12%; }` in the script — a larger value moves it higher.
 
 **Q: I don't want the green debug banner**
-A: Tampermonkey menu → 开关调试条 ("Toggle debug banner"), or edit `debugVisible: false` near the top of the script.
+A: Tampermonkey menu → **Toggle debug banner**, or edit `debugVisible: false` near the top of the script.
 
 **Q: How much does it cost to translate one video?**
 A: A 10-minute video uses roughly 2000–3000 input tokens plus a similar output — less than ¥0.01 on DeepSeek.
