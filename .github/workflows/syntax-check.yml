@@ -1,4 +1,4 @@
-name: Userscript syntax check
+name: 脚本检查与回归测试
 
 on:
   push:
@@ -7,12 +7,20 @@ on:
     branches: [main]
 
 jobs:
-  syntax-check:
+  test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['22', '24']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - name: node --check
-        run: node --check youtube-bilingual-subs.user.js
+          node-version: ${{ matrix.node-version }}
+      - name: 语法检查
+        run: npm run check
+      - name: 回归测试
+        run: npm test
