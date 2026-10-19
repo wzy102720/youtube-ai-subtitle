@@ -40,7 +40,7 @@ test('Google 连续限流会重试，失败结果不缓存；刷新后可重新�
   assert.equal(h.requests.length, 6);
   assert.equal(h.caches().length, 0);
   assert.equal(h.targetText(), '');
-  assert.match(h.ids.get('ytdsk-debug').textContent, /翻译失败/);
+  assert.match(h.ids.get('ytdsk-debug').textContent, /未完成/);
   const reloaded = createHarness({storage: [...h.storage]});
   await reloaded.capture('A', body);
   assert.equal(reloaded.requests.length, 2);
@@ -48,7 +48,6 @@ test('Google 连续限流会重试，失败结果不缓存；刷新后可重新�
 });
 
 for (const [name, content, reason] of [
-  ['漏行', '[1] 第一行。', 'stop'],
   ['重复编号', '[1] 第一行。\n[1] 重复行。\n[2] 第二行。', 'stop'],
   ['无效编号', '[1] 第一行。\n[3] 第三行。', 'stop'],
   ['截断', '[1] 第一行。\n[2] 第二行。', 'length'],
@@ -324,7 +323,7 @@ test('没有回应的翻译请求会按超时和重试上限结束', async () =>
   await h.clock.advance(136500);
   assert.equal(h.requests.length, 3);
   assert.equal(h.caches().length, 0);
-  assert.match(h.ids.get('ytdsk-debug').textContent, /翻译失败/);
+  assert.match(h.ids.get('ytdsk-debug').textContent, /未完成/);
 });
 
 test('XHR 拦截支持复用对象，不会重复处理旧 URL 的监听', async () => {

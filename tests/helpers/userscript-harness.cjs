@@ -60,7 +60,7 @@ function transcript(texts = ['Hello there.'], options = {}) {
 
 function createHarness(options = {}) {
   const clock = new Clock();
-  const ids = new Map(), listeners = new Map();
+  const ids = new Map(), listeners = new Map(), windowListeners = new Map();
   const storage = new Map(options.storage || []);
   const defaults = {ui_locale: 'zh', target_lang: options.target ?? 'zh-CN',
     translate_engine: options.engine ?? 'google', deepseek_api_key: 'mock-test-key'};
@@ -119,19 +119,25 @@ function createHarness(options = {}) {
   const container = player.appendChild(new Element('video-container'));
   let video = options.noVideo ? null : container.appendChild(new Element('video'));
   if (video) video.currentTime = options.currentTime ?? 1;
-  const location = {href: `https://www.youtube.com/watch?v=${options.id || 'A'}`, origin: 'https://www.youtube.com'};
+  const origin = options.origin || 'https://www.youtube.com';
+  const location = {href: `${origin}/watch?v=${options.id || 'A'}`, origin};
   const document = {
-    readyState: options.readyState || 'complete', body, head, documentElement: body,
+    readyState: options.readyState || 'complete', hidden: options.hidden === true,
+    visibilityState: options.hidden ? 'hidden' : 'visible', body, head, documentElement: body,
     createElement: tag => new Element(tag), getElementById: id => ids.get(id) || null,
     querySelectorAll: selector => selector === 'video' && video ? [video] : [],
     addEventListener(name, callback) {
       if (!listeners.has(name)) listeners.set(name, new Set());
       listeners.get(name).add(callback);
     },
-    dispatch(name) { listeners.get(name)?.forEach(callback => callback()); },
+    dispatch(name, event = {}) { listeners.get(name)?.forEach(callback => callback(event)); },
   };
   const sandbox = {
     document, location, navigator: {language: options.language || 'zh-CN'}, URL, AbortController,
+    addEventListener(name, callback) {
+      if (!windowListeners.has(name)) windowListeners.set(name, new Set());
+      windowListeners.get(name).add(callback);
+    },
     XMLHttpRequest,
     console: Object.fromEntries(['log', 'warn', 'error'].map(level => [level, (...args) => logs.push([level, ...args])])),
     GM_getValue: (key, fallback) => storage.has(key) ? storage.get(key) : fallback,
@@ -173,7 +179,7 @@ function createHarness(options = {}) {
   };
   sandbox.window = sandbox;
   const context = vm.createContext(sandbox);
-  vm.runInContext(source, context, {filename: 'youtube-bilingual-subs.user.js'});
+  vm.runInContext(options.source || source, context, {filename: 'youtube-bilingual-subs.user.js'});
 
   function beginCapture(id, language = 'en', extra = {}) {
     const url = new URL('https://www.youtube.com/api/timedtext');
@@ -189,6 +195,7 @@ function createHarness(options = {}) {
     targetText: () => ids.get('ytdsk-tgt')?.textContent || '',
     nativeHidden: () => player.classList.contains('ytdsk-active'),
     caches: () => [...storage].filter(([key]) => key.startsWith('yt-trans-')),
+    progress: () => [...storage].filter(([key]) => key.startsWith('yt-progress-')),
     async capture(id = options.id || 'A', body = transcript(), language = 'en', extra = {}) {
       await beginCapture(id, language, extra).respond(body);
     },
@@ -197,11 +204,22 @@ function createHarness(options = {}) {
       xhr.load(body); await flush(); return xhr;
     },
     async navigate(id) {
-      location.href = id ? `https://www.youtube.com/watch?v=${id}` : 'https://www.youtube.com/';
+      location.href = id ? `${origin}/watch?v=${id}` : `${origin}/`;
       document.dispatch('yt-navigate-finish'); await flush();
     },
     async frame(time) { if (time !== undefined) video.currentTime = time; await clock.frame(); },
     async clearCache() { menus.find(menu => menu.label === '清除当前视频缓存').callback(); await flush(); },
+    async retry() { menus.find(menu => menu.label === '继续翻译未完成字幕').callback(); await flush(); },
+    async setHidden(hidden, dispatch = true) {
+      document.hidden = hidden; document.visibilityState = hidden ? 'hidden' : 'visible';
+      if (dispatch) document.dispatch('visibilitychange');
+      await flush();
+    },
+    async lifecycle(name, event = {}) {
+      if (['pagehide', 'pageshow', 'focus'].includes(name)) windowListeners.get(name)?.forEach(callback => callback(event));
+      else document.dispatch(name, event);
+      await flush();
+    },
     async addVideo() { video = container.appendChild(new Element('video')); video.currentTime = 1; await flush(); },
     async ready() { document.readyState = 'complete'; document.dispatch('DOMContentLoaded'); await flush(); },
   };
