@@ -1,130 +1,112 @@
-> Languages: **English** · [简体中文](README.zh-CN.md)
+# YouTube 双语字幕
 
-# YouTube Bilingual Subtitles (DeepSeek / Google Translation)
+一个油猴（Tampermonkey）脚本：拦截 YouTube 原生字幕请求，翻译到指定语言，并按视频时间轴显示“译文在上、原文在下”的双语字幕。支持 DeepSeek 和 Google 翻译。
 
-A Tampermonkey userscript that **intercepts YouTube's own caption requests**, translates them into any target language you pick, and overlays bilingual subtitles synchronized to the video's timeline.
+[安装脚本](https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js) · [项目介绍](https://wzy102720.github.io/youtube-ai-subtitle/)
 
-> No subtitle extensions, no proxy server — translation goes directly to the DeepSeek or Google API of your choice.
+## 功能
 
-## Features
+- 拦截 `/api/timedtext` 字幕请求，支持 JSON3 和 XML 字幕。
+- 支持多种源语言和目标语言，简体、繁体中文分别处理。
+- 先显示原文，再逐批更新译文；暂停视频时也会立即显示新译文。
+- 切换视频或字幕轨道时取消旧翻译，避免串字幕；离开视频页恢复原生字幕。
+- 按视频、字幕轨道、正文、目标语言、翻译引擎和模型分别缓存，只保存完整译文。
+- 按标点切分，遇到较长静音时保持两侧字幕各自的时间区间。
+- 字幕尚未捕获、等待超时或解析失败时保留原生字幕；稍后打开 CC 可以自动恢复。
+- 请求有超时和有限重试；翻译失败会提示原因，不会把空译文缓存成成功结果。
 
-- **Hijacks native captions**: hooks YouTube's `/api/timedtext` requests at the network layer, no DOM scraping
-- **Smart sentence splitting**: accumulates across events, **only breaks at punctuation** — never mid-sentence
-- **Two engines**: DeepSeek (high quality, batched prompts, preserves proper nouns) or Google (free, no API key required, fast)
-- **Local caching**: each video is translated once per target language, replays read straight from cache
-- **Direct connection**: the script talks to the official APIs directly; nothing routed through any third party
-- **Bilingual UI** (v0.9.2+): menu commands and the in-page debug banner auto-detect your browser language (Chinese for `zh-*`, English otherwise); a Tampermonkey menu entry lets you flip it manually
-- **Any source → any target** (v0.10.0+): source language is read straight from YouTube's caption metadata (works for English, Spanish, Japanese, Korean…); target language is your choice via a menu prompt (`zh-CN`, `en`, `ja`, `ko`, `es`, `fr`, `de`, `ru`, `pt`, `it`, `ar`, `hi`, `vi`, `th`, `id`, or any other ISO code). If source equals target, translation is skipped automatically.
+## 安装
 
-## Install
+1. 安装浏览器对应的 [Tampermonkey](https://www.tampermonkey.net/) 扩展。
+2. 打开[脚本安装地址](https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js)，在油猴安装页面确认安装。
+3. 如果没有弹出安装页面，在油猴管理面板中新建脚本，将 `youtube-bilingual-subs.user.js` 的全部内容粘贴进去并保存。
+4. 打开 YouTube 视频，并启用播放器的 **CC 字幕按钮**。
 
-### 1. Install a userscript manager
+脚本依赖视频已有的字幕，不会对没有字幕的视频进行语音识别。目前处理常规 `watch?v=...` 视频页面。
 
-Pick one for your browser:
+## 配置翻译引擎
 
-- Chrome / Edge / Brave: [Tampermonkey](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
-- Firefox: [Tampermonkey](https://addons.mozilla.org/firefox/addon/tampermonkey/) or [Violentmonkey](https://addons.mozilla.org/firefox/addon/violentmonkey/)
-- Safari: [Tampermonkey](https://apps.apple.com/app/tampermonkey/id1482490089)
+### DeepSeek（默认）
 
-### 2. Install the script
+1. 在 [DeepSeek 开放平台](https://platform.deepseek.com/) 创建 API Key，并确认账户可调用 API。
+2. 打开 YouTube 视频，在油猴菜单中点击“设置 DeepSeek API Key”。
+3. 输入 Key 并刷新视频页面。
 
-One-click install: open the [Raw script URL](https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js) — Tampermonkey will automatically prompt to install.
+**当前默认模型为 `deepseek-flash`，截至 2026 年 10 月 19 日，对应 10 月 17 日更新的 DeepSeek-V4.1-Flash-1017。** 本脚本使用 `/chat/completions` 接口，并显式设置 `thinking: { type: 'disabled' }`，按非思考模式进行字幕翻译。
 
-Alternatively, copy the contents of `youtube-bilingual-subs.user.js` into a new userscript in Tampermonkey's dashboard manually.
+模型名称与发布日期依据 [DeepSeek 官方更新日志](https://api-docs.deepseek.com/zh-cn/updates/)，参数依据[思考模式说明](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/)。旧的 `deepseek-chat` 已替换；今后需要更改模型时，可编辑脚本顶部的 `CFG.model`。模型名称是服务端别名，后续所指版本以官方说明为准。
 
-## Configuration
+API 按实际用量收费，价格以[官方模型与价格页面](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)为准。
 
-### Get a DeepSeek API key (recommended)
+### Google 翻译
 
-DeepSeek's translation quality is noticeably better than Google's, and pricing is cheap (~¥1 / million input tokens).
+在油猴菜单中点击“切换引擎”，切到 `google` 后刷新。此方式无需配置 API Key，使用 `translate.googleapis.com` 的翻译接口。遇到限流或网络错误时会有限重试；仍然失败时，可稍后重试或切换引擎。
 
-1. Sign up at [platform.deepseek.com](https://platform.deepseek.com/)
-2. Top up ~¥10 — that goes a long way
-3. **API Keys** → **Create API Key** → copy the `sk-...` value
+## 菜单与使用
 
-### Set the key in the script
+菜单和调试条按浏览器语言选择中文或英文；“语言 / Language”菜单可以手动切换。项目介绍和文档统一使用中文。
 
-1. Open any YouTube video
-2. Click the Tampermonkey icon in your browser toolbar
-3. In the script's submenu, click **Set DeepSeek API Key**
-4. Paste your `sk-...` key and confirm
-5. Reload the page
-
-### Or switch to Google Translate (no key, free)
-
-1. Tampermonkey menu → **Switch engine** → confirm
-2. Reload the page
-
-## Usage
-
-1. Open any YouTube video
-2. **Turn on YouTube's own CC subtitle button** — the script intercepts caption requests, so the CC button must be active for any request to fire
-3. A green debug banner appears at the top: "Please enable CC button, waiting for captions…"
-4. Once captured, the original captions appear immediately while translation runs in the background
-5. When translation completes, captions become bilingual (target language on top, original below)
-6. The debug banner fades out after a few seconds
-
-The overlay shows the translation in bold white text on top with a black stroke shadow, and the original captions in smaller semi-transparent text below — readable on both bright and dark frames.
-
-## Tampermonkey menu commands
-
-The menu labels follow your selected UI language. The English versions are shown below; the Chinese equivalents are in [README.zh-CN.md](README.zh-CN.md).
-
-| Menu command (English UI) | What it does |
+| 菜单 | 作用 |
 | --- | --- |
-| Language / 语言: English | Toggle UI language between English and 中文; reload required |
-| Set DeepSeek API Key | Set or change your DeepSeek API key |
-| Switch engine (current: xxx) | Toggle between DeepSeek and Google |
-| Target language / 目标: xxx | Open a prompt to change the translation target (e.g. `zh-CN`, `en`, `ja`); persists across reloads |
-| Clear cache for current video | Clear the cached translation for the current video — required after editing the script logic, otherwise stale cues persist |
-| Toggle debug banner | Show / hide the green debug banner at the top of the page |
+| 语言 / Language | 切换菜单与调试条语言，刷新生效 |
+| 设置 DeepSeek API Key | 保存或更改 Key，刷新生效 |
+| 切换引擎 | 切换 DeepSeek / Google，刷新生效；不同引擎的缓存分别保存 |
+| 目标语言 / Target | 输入目标语言代码，刷新生效 |
+| 清除当前视频缓存 | 删除当前视频所有引擎、模型、语言及字幕轨道的缓存，并立即重新处理 |
+| 开关调试条 | 显示或隐藏调试信息 |
 
-## Subtitle splitting rules (v0.9.1)
+常用目标语言代码：`zh-CN`（简体中文）、`zh-TW`（繁体中文）、`en`（英语）、`ja`（日语）、`ko`（韩语）、`es`（西班牙语）、`fr`（法语）、`de`（德语）。也可以输入翻译引擎支持的其他语言代码。
 
-| Trigger | Behavior |
-| --- | --- |
-| Token ends with `. ! ? 。 ！ ？` or `, ， ; ； : ：` | **Split immediately** as one caption |
-| Accumulated > 10s with no punctuation | Force split (fallback, prevents stuck captions) |
-| Event boundary without punctuation | **Don't split** — accumulate across events |
+未设置目标语言时，中文界面默认译成 `zh-CN`，英文界面默认译成 `en`。源语言与目标语言明确相同时跳过翻译；`zh-Hans` 与 `zh-CN` 视为简体中文，`zh-Hant` 与 `zh-TW` 视为繁体中文，简繁之间仍会调用翻译。
 
-To tune caption length, edit this line in the script:
+YouTube 切换字幕语言或自动字幕/人工字幕轨道时，脚本会重新处理对应字幕。缓存必须先匹配实际捕获的字幕，因此重新打开视频时仍需开启 CC。
 
-```javascript
-const MAX_CHUNK_MS = 10000;  // fallback duration in milliseconds
+## 更新到 0.11.0
+
+更新脚本后刷新已打开的 YouTube 页面，让新的拦截器生效。API Key、翻译引擎、目标语言和界面语言设置会继续保留。
+
+旧版 `v: 2` 字幕缓存不再读取，避免沿用漏译结果或混用字幕轨道；新版首次处理会重新翻译并生成 `v: 3` 缓存。清除当前视频缓存会一并删除旧版缓存。
+
+本版修复了视频切换任务丢失、CC 超时无法恢复、失败结果错误缓存、当前句译文不刷新、跨静音合并字幕、切换引擎沿用旧译文、切换字幕轨道无效及简繁转换被跳过的问题。
+
+## 常见问题
+
+**等待很久仍没有双语字幕？**
+
+先确认视频有字幕、CC 已开启。30 秒没有捕获到字幕只会显示等待提示，不会永久停用；之后收到字幕会自动处理，原生字幕在替代字幕尚未就绪时继续可见。必要时切换一次 CC，或刷新页面。
+
+**翻译失败、提示 HTTP 429 或超时？**
+
+脚本对网络错误、超时、HTTP 429 / 5xx 和不完整结果最多尝试 3 次，每次请求超时 45 秒。鉴权失败等错误不会重复请求。请检查 Key、余额及网络；恢复后点击“清除当前视频缓存”立即重试。部分成功的译文会继续显示，但整份结果不会写入成功缓存。
+
+**更换引擎后会继续显示原来的译文吗？**
+
+刷新后会按新引擎查找独立缓存；没有对应缓存则重新翻译。模型、目标语言或字幕轨道不同，也会使用独立缓存。
+
+**字幕位置或切分长度怎么调？**
+
+修改脚本中 `#ytdsk-overlay` 的 `bottom: 12%` 可以调整高度。`MAX_CHUNK_MS = 10000` 控制合并字幕时的时长上限；相邻片段间隔超过 `HOLD_GAP_S = 1.5` 秒时会先结束上一条字幕。缺少词级时间戳的单个长字幕片段仍按原始时间区间处理。
+
+## 隐私
+
+- API Key、偏好设置及成功译文保存在本机油猴存储中。
+- 翻译时，**字幕原文会发送给当前选定的翻译服务**：DeepSeek 或 Google。
+- DeepSeek Key 通过请求头发送给 DeepSeek，用于 API 鉴权，不会发送给 Google。
+- 本项目没有中间代理服务；第三方服务对请求数据的处理以其各自政策为准。
+
+## 开发与验证
+
+安装 Node.js 22 或更新版本后，在仓库目录运行：
+
+```sh
+npm run check
+npm test
 ```
 
-- Smaller (e.g. 7000) → shorter, more frequent captions
-- Larger (e.g. 15000) → longer captions that linger
+测试使用 Node.js 自带的测试运行器，无需安装第三方依赖。通过可控的页面、时钟、字幕响应和翻译服务，运行实际脚本并检查画面与缓存结果，覆盖上述 8 类回归及请求取消、乱序响应、重试、超时、缓存损坏和模型请求参数。GitHub Actions 在 Node.js 22、24 上执行语法检查与全部测试。
 
-## FAQ
+自动化测试不会访问真实 YouTube，也不会调用付费翻译 API。发布前仍应在浏览器中验证字幕抓取、连续切换视频、字幕轨道切换和全屏显示。
 
-**Q: Debug banner says "No captions captured within 30s"**
-A: You forgot to enable YouTube's own CC button. The script hijacks caption requests — if CC is off, YouTube never makes the request.
+## 许可
 
-**Q: Banner says "Parsed result empty"**
-A: The video may use an unusual caption format. Open DevTools console and check for errors; please file an issue with the video URL.
-
-**Q: Translation quality is bad or translation fails**
-A: Check your DeepSeek balance, or switch to the Google engine to compare.
-
-**Q: I edited the script but nothing changed**
-A: Save in Tampermonkey (Ctrl+S) → **close and reopen** the YouTube tab (not just reload) → menu **Clear cache for current video**.
-
-**Q: Subtitle position on the video is off**
-A: Edit `#ytdsk-overlay { bottom: 12%; }` in the script — a larger value moves it higher.
-
-**Q: I don't want the green debug banner**
-A: Tampermonkey menu → **Toggle debug banner**, or edit `debugVisible: false` near the top of the script.
-
-**Q: How much does it cost to translate one video?**
-A: A 10-minute video uses roughly 2000–3000 input tokens plus a similar output — less than ¥0.01 on DeepSeek.
-
-## Privacy
-
-- All data is stored locally via Tampermonkey storage (`GM_setValue`). Nothing is uploaded to any server.
-- Translation requests go **directly** to the official APIs (`api.deepseek.com` / `translate.googleapis.com`) — no proxy in between.
-- Your API key is stored in your local browser only. The source is open and auditable.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+[MIT](LICENSE)
