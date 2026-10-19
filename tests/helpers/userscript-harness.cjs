@@ -210,12 +210,13 @@ function createHarness(options = {}) {
     async frame(time) { if (time !== undefined) video.currentTime = time; await clock.frame(); },
     async clearCache() { menus.find(menu => menu.label === '清除当前视频缓存').callback(); await flush(); },
     async retry() { menus.find(menu => menu.label === '继续翻译未完成字幕').callback(); await flush(); },
-    async setHidden(hidden) {
+    async setHidden(hidden, dispatch = true) {
       document.hidden = hidden; document.visibilityState = hidden ? 'hidden' : 'visible';
-      document.dispatch('visibilitychange'); await flush();
+      if (dispatch) document.dispatch('visibilitychange');
+      await flush();
     },
     async lifecycle(name, event = {}) {
-      if (['pagehide', 'pageshow'].includes(name)) windowListeners.get(name)?.forEach(callback => callback(event));
+      if (['pagehide', 'pageshow', 'focus'].includes(name)) windowListeners.get(name)?.forEach(callback => callback(event));
       else document.dispatch(name, event);
       await flush();
     },

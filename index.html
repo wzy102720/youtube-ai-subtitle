@@ -34,7 +34,7 @@
     <h1>YouTube 双语字幕</h1>
     <p class="intro">将视频字幕翻译成你选的语言，让译文和原文按时间轴同步显示。</p>
     <a class="install" href="https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js">安装油猴脚本</a>
-    <p class="note">当前版本 0.11.1 · 需要先安装 <a href="https://www.tampermonkey.net/">Tampermonkey</a> 浏览器扩展</p>
+    <p class="note">当前版本 0.11.2 · 需要先安装 <a href="https://www.tampermonkey.net/">Tampermonkey</a> 浏览器扩展</p>
 
     <div class="features">
       <div class="feature"><strong>多语言双语字幕</strong><span>译文在上、原文在下，支持目标语言选择和简繁转换。</span></div>
@@ -63,7 +63,7 @@
     <section>
       <h2>等待与重试</h2>
       <p>尚未捕获字幕时保留原生字幕。等待超过 30 秒后再开启 CC，脚本仍会自动处理。翻译失败时优先使用“继续翻译未完成字幕”，保留成功译文；“清除当前视频缓存”会连同进度一起删除并从头翻译。</p>
-      <p>手机切后台时暂停请求，回前台继续；页面被回收重载后，开启 CC 匹配原字幕以恢复进度。移动端后台恢复仍需安卓 Edge 实机验证，不保证持续后台运行。</p>
+      <p>手机切后台时暂停请求，回前台继续；恢复事件漏发时也会检查可见状态并唤醒任务。页面被回收重载后，开启 CC 匹配原字幕以恢复进度。移动端后台恢复仍需安卓 Edge 实机验证，不保证持续后台运行。</p>
       <p>字幕原文会发送到选定的翻译服务；API Key、缓存和未完成进度保存在本机油猴存储中。费用以服务商的当前价格为准。</p>
     </section>
 

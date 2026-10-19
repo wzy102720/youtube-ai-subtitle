@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube 双语字幕 (DeepSeek/Google 翻译)
 // @namespace    https://github.com/wzy102720/youtube-ai-subtitle
-// @version      0.11.1
+// @version      0.11.2
 // @description  拦截 YouTube 字幕并翻译到目标语言，按时间轴叠加双语字幕，支持 DeepSeek 和 Google 翻译
 // @author       wzy102720
 // @match        *://*.youtube.com/*
@@ -249,9 +249,31 @@
   // 移动浏览器可能冻结或回收后台页面。中断当前请求，前台恢复后仅重发未完成部分。
   let pageFrozen = false, pageAway = false;
   const pageListeners = new Set();
-  const pagePaused = () => document.hidden === true || pageFrozen || pageAway;
-  const pageChanged = () => { for (const listener of [...pageListeners]) listener(); };
-  document.addEventListener('visibilitychange', pageChanged);
+  const documentHidden = () => document.hidden === true || document.visibilityState === 'hidden';
+  const pagePaused = () => documentHidden() || pageFrozen || pageAway;
+  let lastPagePaused = pagePaused();
+  function pageChanged() {
+    lastPagePaused = pagePaused();
+    for (const listener of [...pageListeners]) {
+      // 一个存储/界面监听器异常，不能阻断其余请求与等待者的恢复。
+      try { listener(); } catch (error) { console.warn('[yt-bisubs] lifecycle listener failed', error); }
+    }
+  }
+  function confirmForeground() {
+    if (documentHidden()) return;
+    const needsWake = pageFrozen || pageAway || lastPagePaused;
+    // 当前可见性比此前收到的 freeze/pagehide 更可靠，不要求事件成对到达。
+    pageFrozen = false;
+    pageAway = false;
+    if (needsWake) pageChanged();
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (documentHidden()) pageChanged();
+    else confirmForeground();
+  });
+  window.addEventListener('focus', confirmForeground);
+  document.addEventListener('pointerdown', confirmForeground, {passive: true});
+  document.addEventListener('touchstart', confirmForeground, {passive: true});
   document.addEventListener('freeze', () => { pageFrozen = true; pageChanged(); });
   document.addEventListener('resume', () => { pageFrozen = false; pageChanged(); });
   window.addEventListener('pagehide', () => { pageAway = true; pageChanged(); });
@@ -856,6 +878,7 @@
   }
   function tick() {
     rafId = requestAnimationFrame(tick);
+    confirmForeground();
     renderCurrentCue();
   }
   function startTick() {
@@ -1053,10 +1076,13 @@
     void processVideo(id, captured);
   });
   refreshCurrentVideo = () => {
+    confirmForeground();
     const id = videoId();
     if (id) void processVideo(id, null, true);
   };
   function syncNavigation() {
+    // 恢复事件漏发时，前台仍运行的定时器也能唤醒翻译。
+    confirmForeground();
     const id = videoId();
     if (id !== lastVid) {
       lastVid = id;

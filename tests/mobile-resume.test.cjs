@@ -63,14 +63,115 @@ test('冻结和恢复事件能恢复请求；仍隐藏时不会提前请求', as
 test('从前后退缓存恢复页面时继续翻译，不把 pagehide 当作任务永久取消', async () => {
   const h = createHarness({...mobile, respond: () => {}});
   await h.capture();
+  await h.setHidden(true);
   await h.lifecycle('pagehide', {persisted: true});
   assert.equal(h.requests[0].aborted, true);
   await h.clock.advance(60000);
   assert.equal(h.requests.length, 1);
   await h.lifecycle('pageshow', {persisted: true});
+  assert.equal(h.requests.length, 1);
+  await h.setHidden(false);
   assert.equal(h.requests.length, 2);
   respondAll(h.requests[1]); await flush();
   assert.equal(h.caches().length, 1);
+});
+
+test('仅收到可见事件也应清除过期冻结标记，缺失 resume 不会永久暂停', async () => {
+  const h = createHarness({...mobile, respond: () => {}});
+  await h.capture();
+  await h.setHidden(true); await h.lifecycle('freeze');
+  await h.setHidden(false);
+  assert.equal(h.requests.length, 2);
+  respondAll(h.requests[1]); await flush();
+  assert.equal(h.caches().length, 1);
+});
+
+test('pageshow 丢失时，可见事件同样能清除 pagehide 标记', async () => {
+  const h = createHarness({...mobile, respond: () => {}});
+  await h.capture();
+  await h.setHidden(true); await h.lifecycle('pagehide', {persisted: true});
+  await h.setHidden(false);
+  assert.equal(h.requests.length, 2);
+});
+
+test('回前台只收到 focus，仍能恢复；无需等待另一个生命周期事件', async () => {
+  const h = createHarness({...mobile, respond: () => {}});
+  await h.capture();
+  await h.setHidden(true); await h.lifecycle('freeze');
+  await h.setHidden(false, false); await h.lifecycle('focus');
+  assert.equal(h.requests.length, 2);
+});
+
+test('恢复事件全部漏发时，定时检查可见状态并恢复翻译', async () => {
+  const h = createHarness({...mobile, respond: () => {}});
+  await h.capture();
+  await h.setHidden(true); await h.lifecycle('freeze');
+  await h.setHidden(false, false);
+  await h.clock.advance(1000);
+  assert.equal(h.requests.length, 2);
+});
+
+test('恢复了前台动画帧也能唤醒等待，不依赖事件或定时器', async () => {
+  const h = createHarness({...mobile, respond: () => {}});
+  await h.capture();
+  await h.setHidden(true); await h.lifecycle('freeze');
+  await h.setHidden(false, false); await h.frame();
+  assert.equal(h.requests.length, 2);
+  assert.equal(h.clock.frames.size, 1);
+});
+
+test('页面仍隐藏时，focus、动画帧及轮询都不能误恢复后台请求', async () => {
+  const h = createHarness({...mobile, respond: () => {}});
+  await h.capture(); await h.setHidden(true); await h.lifecycle('freeze');
+  await h.lifecycle('focus'); await h.frame(); await h.clock.advance(3000);
+  assert.equal(h.requests.length, 1);
+  await h.setHidden(false);
+  assert.equal(h.requests.length, 2);
+});
+
+test('前台确认后迟到的 freeze 事件不会重新锁死可见页面', async () => {
+  const h = createHarness({...mobile, respond: () => {}});
+  await h.capture(); await h.setHidden(true); await h.setHidden(false);
+  await h.lifecycle('freeze');
+  await h.clock.advance(1000);
+  assert.equal(h.requests.length, 3);
+  respondAll(h.requests[2]); await flush();
+  assert.equal(h.caches().length, 1);
+});
+
+test('保存进度的生命周期监听器异常，不应阻断请求暂停和恢复', async () => {
+  const h = createHarness({...mobile, respond(request, i) { if (i === 0) respondAll(request); }});
+  await h.capture('A', longBody()); await h.clock.advance(200);
+  const save = h.context.GM_setValue;
+  h.context.GM_setValue = () => { throw new Error('Storage temporarily unavailable'); };
+  await h.setHidden(true);
+  assert.equal(h.requests[1].aborted, true);
+  h.context.GM_setValue = save;
+  await h.setHidden(false);
+  assert.equal(h.requests.length, 3);
+});
+
+test('107/340 处后台暂停后，即使恢复事件丢失也仅续译后面 233 条', async () => {
+  const h = createHarness({...mobile, respond(request, i) {
+    if (i !== 8) { respondAll(request); return; }
+    const lines = input(request).split('\n').slice(0, 11);
+    answerDeepSeek(request, lines.map((line, j) => `[${j + 1}] ${line.replace(/^\[\d+\] /, '')}的译文`).join('\n'));
+  }});
+  const body = transcript(Array.from({length: 340}, (_, i) => `Sentence ${i + 1}.`));
+  await h.capture('A', body); await h.clock.advance(1600);
+  assert.equal(JSON.parse(h.progress()[0][1]).cues.filter(c => c.tgt).length, 107);
+  const beforePause = h.requests.length;
+  await h.setHidden(true); await h.lifecycle('freeze');
+  await h.clock.advance(10000);
+  assert.equal(h.requests.length, beforePause);
+  await h.setHidden(false, false); await h.clock.advance(1000);
+  assert.equal(input(h.requests[beforePause]), '[1] Sentence 108.');
+  await h.clock.advance(5000);
+  const cache = JSON.parse(h.caches()[0][1]);
+  assert.equal(cache.cues.length, 340);
+  assert.equal(cache.cues[106].tgt, 'Sentence 107.的译文');
+  assert.equal(cache.cues[339].tgt, 'Sentence 340.的译文');
+  assert.equal(h.progress().length, 0);
 });
 
 test('页面被回收重载后，恢复 12 条已译进度，只翻译剩余一条', async () => {

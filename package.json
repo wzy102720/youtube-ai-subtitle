@@ -1,6 +1,6 @@
 {
   "name": "youtube-ai-subtitle",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "private": true,
   "description": "YouTube 双语字幕油猴脚本",
   "scripts": {
