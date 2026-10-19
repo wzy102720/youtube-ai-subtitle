@@ -34,13 +34,13 @@
     <h1>YouTube 双语字幕</h1>
     <p class="intro">将视频字幕翻译成你选的语言，让译文和原文按时间轴同步显示。</p>
     <a class="install" href="https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js">安装油猴脚本</a>
-    <p class="note">当前版本 0.11.0 · 需要先安装 <a href="https://www.tampermonkey.net/">Tampermonkey</a> 浏览器扩展</p>
+    <p class="note">当前版本 0.11.1 · 需要先安装 <a href="https://www.tampermonkey.net/">Tampermonkey</a> 浏览器扩展</p>
 
     <div class="features">
       <div class="feature"><strong>多语言双语字幕</strong><span>译文在上、原文在下，支持目标语言选择和简繁转换。</span></div>
       <div class="feature"><strong>新版 DeepSeek</strong><span>默认使用 deepseek-flash，当前对应 DeepSeek-V4.1-Flash-1017。</span></div>
       <div class="feature"><strong>切换视频自动衔接</strong><span>更换视频或字幕轨道时取消旧任务，避免旧译文覆盖当前内容。</span></div>
-      <div class="feature"><strong>完整译文独立缓存</strong><span>按字幕、目标语言、引擎和模型分别保存，失败后可以重试。</span></div>
+      <div class="feature"><strong>保留进度继续翻译</strong><span>按批保存已成功译文，后台暂停、回到前台续译；完整缓存仍按引擎等设置隔离。</span></div>
     </div>
 
     <section>
@@ -62,8 +62,9 @@
 
     <section>
       <h2>等待与重试</h2>
-      <p>尚未捕获字幕时保留原生字幕。等待超过 30 秒后再开启 CC，脚本仍会自动处理。翻译失败时可通过“清除当前视频缓存”立即重新尝试。</p>
-      <p>字幕原文会发送到选定的翻译服务；API Key 和缓存保存在本机油猴存储中。费用以服务商的当前价格为准。</p>
+      <p>尚未捕获字幕时保留原生字幕。等待超过 30 秒后再开启 CC，脚本仍会自动处理。翻译失败时优先使用“继续翻译未完成字幕”，保留成功译文；“清除当前视频缓存”会连同进度一起删除并从头翻译。</p>
+      <p>手机切后台时暂停请求，回前台继续；页面被回收重载后，开启 CC 匹配原字幕以恢复进度。移动端后台恢复仍需安卓 Edge 实机验证，不保证持续后台运行。</p>
+      <p>字幕原文会发送到选定的翻译服务；API Key、缓存和未完成进度保存在本机油猴存储中。费用以服务商的当前价格为准。</p>
     </section>
 
     <section>
