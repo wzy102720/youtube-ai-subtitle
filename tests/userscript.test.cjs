@@ -40,7 +40,7 @@ test('Google 连续限流会重试，失败结果不缓存；刷新后可重新�
   assert.equal(h.requests.length, 6);
   assert.equal(h.caches().length, 0);
   assert.equal(h.targetText(), '');
-  assert.match(h.ids.get('ytdsk-debug').textContent, /翻译失败/);
+  assert.match(h.ids.get('ytdsk-debug').textContent, /未完成/);
   const reloaded = createHarness({storage: [...h.storage]});
   await reloaded.capture('A', body);
   assert.equal(reloaded.requests.length, 2);
@@ -48,7 +48,6 @@ test('Google 连续限流会重试，失败结果不缓存；刷新后可重新�
 });
 
 for (const [name, content, reason] of [
-  ['漏行', '[1] 第一行。', 'stop'],
   ['重复编号', '[1] 第一行。\n[1] 重复行。\n[2] 第二行。', 'stop'],
   ['无效编号', '[1] 第一行。\n[3] 第三行。', 'stop'],
   ['截断', '[1] 第一行。\n[2] 第二行。', 'length'],
@@ -103,9 +102,9 @@ test('长静音两侧的字幕保持各自区间，静音中不显示未来台�
   assert.equal(h.sourceText(), 'After the break.');
 });
 
-test('连续无标点字幕在加入下一段之前检查十秒上限', async () => {
+test('非英语字幕沿用十秒上限，在加入下一段之前检查长度', async () => {
   const h = createHarness();
-  await h.capture('A', transcript(['First part', 'Second part'], {starts: [0, 6000], durations: [6000, 6000]}));
+  await h.capture('A', transcript(['Primera parte', 'Segunda parte'], {starts: [0, 6000], durations: [6000, 6000]}), 'es');
   const cues = JSON.parse(h.caches()[0][1]).cues;
   assert.equal(cues.length, 2);
   assert.ok(cues.every(cue => cue.end - cue.start <= 10));
@@ -324,7 +323,7 @@ test('没有回应的翻译请求会按超时和重试上限结束', async () =>
   await h.clock.advance(136500);
   assert.equal(h.requests.length, 3);
   assert.equal(h.caches().length, 0);
-  assert.match(h.ids.get('ytdsk-debug').textContent, /翻译失败/);
+  assert.match(h.ids.get('ytdsk-debug').textContent, /未完成/);
 });
 
 test('XHR 拦截支持复用对象，不会重复处理旧 URL 的监听', async () => {
