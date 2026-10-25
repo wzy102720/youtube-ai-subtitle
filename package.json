@@ -1,11 +1,11 @@
 {
   "name": "youtube-ai-subtitle",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "private": true,
   "description": "YouTube 双语字幕油猴脚本",
   "scripts": {
     "check": "node --check youtube-bilingual-subs.user.js",
-    "test": "node --test tests/userscript.test.cjs tests/mobile-resume.test.cjs tests/docs.test.cjs"
+    "test": "node --test tests/userscript.test.cjs tests/mobile-resume.test.cjs tests/sentence-translation.test.cjs tests/docs.test.cjs"
   },
   "engines": { "node": ">=22" }
 }

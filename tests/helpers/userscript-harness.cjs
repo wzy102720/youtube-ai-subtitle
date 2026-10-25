@@ -50,6 +50,11 @@ function answerDeepSeek(request, content, finishReason = 'stop') {
   })});
 }
 
+function deepSeekInput(request) {
+  return JSON.parse(request.data).messages.at(-1).content.split('\n')
+    .filter(line => /^\[\d+\] /.test(line)).join('\n');
+}
+
 function transcript(texts = ['Hello there.'], options = {}) {
   return JSON.stringify({events: texts.map((text, index) => ({
     tStartMs: options.starts?.[index] ?? index * 6000,
@@ -156,7 +161,7 @@ function createHarness(options = {}) {
       else if (request.url.includes('translate.googleapis.com')) {
         request.onload({status: 200, responseText: JSON.stringify([[['谷歌译文。', 'source']]])});
       } else {
-        const input = JSON.parse(request.data).messages[1].content;
+        const input = deepSeekInput(request);
         const count = (input.match(/^\[\d+\]/gm) || []).length;
         answerDeepSeek(request, Array.from({length: count}, (_, i) => `[${i + 1}] 深度求索译文${i + 1}。`).join('\n'));
       }
@@ -225,4 +230,4 @@ function createHarness(options = {}) {
   };
 }
 
-module.exports = {createHarness, transcript, answerDeepSeek, flush};
+module.exports = {createHarness, transcript, answerDeepSeek, deepSeekInput, flush};

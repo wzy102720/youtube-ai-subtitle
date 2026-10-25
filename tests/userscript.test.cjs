@@ -102,9 +102,9 @@ test('长静音两侧的字幕保持各自区间，静音中不显示未来台�
   assert.equal(h.sourceText(), 'After the break.');
 });
 
-test('连续无标点字幕在加入下一段之前检查十秒上限', async () => {
+test('非英语字幕沿用十秒上限，在加入下一段之前检查长度', async () => {
   const h = createHarness();
-  await h.capture('A', transcript(['First part', 'Second part'], {starts: [0, 6000], durations: [6000, 6000]}));
+  await h.capture('A', transcript(['Primera parte', 'Segunda parte'], {starts: [0, 6000], durations: [6000, 6000]}), 'es');
   const cues = JSON.parse(h.caches()[0][1]).cues;
   assert.equal(cues.length, 2);
   assert.ok(cues.every(cue => cue.end - cue.start <= 10));

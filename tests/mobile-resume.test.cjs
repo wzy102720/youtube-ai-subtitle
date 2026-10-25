@@ -1,13 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {createHarness, transcript, answerDeepSeek, flush} = require('./helpers/userscript-harness.cjs');
+const {createHarness, transcript, answerDeepSeek, deepSeekInput, flush} = require('./helpers/userscript-harness.cjs');
 
 const longBody = () => transcript(Array.from({length: 13}, (_, i) => `Sentence ${i + 1}.`));
 function respondAll(request) {
-  const lines = JSON.parse(request.data).messages[1].content.split('\n');
+  const lines = deepSeekInput(request).split('\n');
   answerDeepSeek(request, lines.map((line, i) => `[${i + 1}] ${line.replace(/^\[\d+\] /, '')}的译文`).join('\n'));
 }
-const input = request => JSON.parse(request.data).messages[1].content;
+const input = deepSeekInput;
 const mobile = {engine: 'deepseek', origin: 'https://m.youtube.com'};
 
 test('手机切后台中断在途请求，已译进度落盘；回前台仅重发未完成批次', async () => {
