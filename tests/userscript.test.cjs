@@ -350,3 +350,72 @@ test('document-start 阶段捕获的字幕在 DOM 就绪后仍可读取', async 
   await h.ready();
   assert.equal(h.targetText(), '谷歌译文。');
 });
+
+function answerGPT(request, text, status = 'completed') {
+  request.onload({status: 200, responseText: JSON.stringify({status, output: [
+    {type: 'message', role: 'assistant', content: [{type: 'output_text', text}]},
+  ]})});
+}
+
+test('首次选择 GPT 可取消或保存独立密钥，切换后读取对应缓存', async () => {
+  const original = createHarness({engine: 'deepseek'});
+  await original.capture();
+  const select = original.menus.find(menu => menu.label === '切换引擎 → GPT (OpenAI)').callback;
+  select();
+  assert.equal(original.storage.get('translate_engine'), 'deepseek');
+  original.context.prompt = () => ' test-openai-key ';
+  select();
+  assert.equal(original.storage.get('translate_engine'), 'openai');
+  assert.equal(original.storage.get('deepseek_api_key'), 'mock-test-key');
+  const gpt = createHarness({storage: [...original.storage],
+    respond: request => answerGPT(request, '[1] 你好。')});
+  await gpt.capture();
+  const [request] = gpt.requests;
+  assert.equal(request.url, 'https://api.openai.com/v1/responses');
+  assert.equal(request.headers.Authorization, 'Bearer test-openai-key');
+  assert.equal(request.method, 'POST');
+  const data = JSON.parse(request.data);
+  assert.equal(data.model, 'gpt-5.4-mini');
+  assert.equal(data.store, false);
+  assert.match(data.instructions, /Simplified Chinese/);
+  assert.match(data.input, /\[1\] Hello there\./);
+  assert.equal(gpt.targetText(), '你好。');
+  assert.equal(gpt.caches().length, 2);
+  const cached = createHarness({storage: [...gpt.storage]});
+  await cached.capture();
+  assert.equal(cached.requests.length, 0);
+  assert.equal(cached.targetText(), '你好。');
+  gpt.menus.find(menu => menu.label === '切换引擎 → Google').callback();
+  const google = createHarness({storage: [...gpt.storage]});
+  await google.capture();
+  assert.equal(google.requests[0].headers?.Authorization, undefined);
+});
+
+test('未设置 OpenAI Key 时不发送请求，额度用完时只请求一次', async () => {
+  const missing = createHarness({engine: 'openai'});
+  await missing.capture();
+  assert.equal(missing.requests.length, 0);
+  assert.match(missing.logs.flat().join(' '), /未设置 GPT \(OpenAI\) API Key/);
+  const h = createHarness({engine: 'openai', storage: [['openai_api_key', 'test-key']],
+    respond: request => request.onload({status: 429, responseText: '{"error":{"code":"credit_balance_exhausted"}}'})});
+  await h.capture();
+  await h.clock.advance(2000);
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.caches().length, 0);
+  assert.match(h.logs.flat().join(' '), /credit_balance_exhausted/);
+});
+
+test('GPT 截断的响应不能写入缓存，重试成功后只补译漏行', async () => {
+  const h = createHarness({engine: 'openai', storage: [['openai_api_key', 'test-key']],
+    respond(request, index) {
+      if (index === 0) answerGPT(request, '[1] 截断的译文。', 'incomplete');
+      else answerGPT(request, index === 1 ? '[1] 第一句。' : '[1] 第二句。');
+    }});
+  await h.capture('A', transcript(['First sentence.', 'Second sentence.']));
+  assert.equal(h.caches().length, 0);
+  await h.clock.advance(1500);
+  assert.equal(h.requests.length, 3);
+  assert.match(JSON.parse(h.requests[2].data).input, /\[1\] Second sentence\.$/);
+  assert.equal(h.caches().length, 1);
+  assert.equal(h.targetText(), '第一句。');
+});
