@@ -5,7 +5,7 @@
 // @name:zh-TW   YouTube 雙語字幕（GPT / DeepSeek / Google）
 // @name:en      YouTube Bilingual Subtitles (GPT / DeepSeek / Google)
 // @namespace    https://github.com/wzy102720/youtube-ai-subtitle
-// @version      0.12.3
+// @version      0.12.4
 // @updateURL    https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js
 // @downloadURL  https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js
 // @description  拦截 YouTube 字幕并翻译到目标语言，按时间轴叠加双语字幕，支持 DeepSeek、GPT（OpenAI）和 Google 翻译
@@ -94,7 +94,6 @@
   const I18N = {
     zh: {
       menu_lang:       (cur) => `语言 / Language: ${cur === 'zh' ? '中文' : 'English'}`,
-      picker_label:    '字幕翻译',
       menu_setKey:     (provider) => `设置 ${provider} API Key`,
       menu_engine:     (name) => `切换引擎 → ${name}`,
       menu_target:     (cur) => `目标语言 / Target: ${cur}`,
@@ -136,7 +135,6 @@
     },
     en: {
       menu_lang:       (cur) => `Language / 语言: ${cur === 'zh' ? '中文' : 'English'}`,
-      picker_label:    'Subtitle translation',
       menu_setKey:     (provider) => `Set ${provider} API Key`,
       menu_engine:     (name) => `Switch engine → ${name}`,
       menu_target:     (cur) => `Target language / 目标: ${cur}`,
@@ -932,7 +930,7 @@
   // ============ 渲染 ============
   // 多语言字体栈：覆盖 CJK + 拉丁 + 阿拉伯 + 印地 + 泰文
   let visible = true;
-  let overlay, tgtEl, srcEl, videoEl, nativeCaptionHost, enginePicker;
+  let overlay, tgtEl, srcEl, videoEl, nativeCaptionHost;
   let cues = [], rafId = null;
 
   function injectStyle() {
@@ -940,18 +938,6 @@
     const s = document.createElement('style');
     s.id = 'ytdsk-style';
     s.textContent = `
-      #ytdsk-engine-picker {
-        top: 8px; left: 8px; z-index: 2147483646;
-        display: inline-flex; align-items: center; gap: 5px;
-        color: white; background: rgba(20,20,20,.88); border-radius: 6px;
-        padding: 0 7px; font: 13px/1.3 -apple-system, BlinkMacSystemFont, sans-serif;
-        white-space: nowrap; pointer-events: auto;
-      }
-      #ytdsk-engine-picker select {
-        margin: 0; min-height: 32px; max-width: 45vw; font: inherit;
-        color: inherit; color-scheme: dark; background: transparent; cursor: pointer;
-      }
-      #ytdsk-engine-picker option { background: #191919; color: white; }
       #ytdsk-overlay {
         left: 0; right: 0; bottom: 12%;
         text-align: center; pointer-events: none; z-index: 2147483646;
@@ -1001,34 +987,6 @@
     return video?.parentElement || null;
   }
 
-  function ensureEnginePicker(host) {
-    if (enginePicker && enginePicker.parentElement === host) return;
-    enginePicker?.remove();
-    const label = document.createElement('label');
-    label.id = 'ytdsk-engine-picker';
-    label.textContent = T.picker_label;
-    const select = document.createElement('select');
-    for (const [id, provider] of Object.entries(engines)) {
-      const option = document.createElement('option');
-      option.value = id;
-      option.textContent = provider.label;
-      select.appendChild(option);
-    }
-    select.value = getEngine();
-    select.onchange = event => {
-      if (!event.isTrusted || !chooseEngine(select.value)) select.value = getEngine();
-    };
-    // 原生下拉框自行处理键盘和触摸，防止选择引擎时触发播放器快捷键。
-    for (const event of ['click', 'dblclick', 'pointerdown', 'pointerup', 'touchstart', 'touchend', 'keydown', 'keyup']) {
-      label['on' + event] = e => e.stopPropagation();
-    }
-    label.appendChild(select);
-    if (host !== document.body && getComputedStyle(host).position === 'static') host.style.position = 'relative';
-    label.style.position = host === document.body ? 'fixed' : 'absolute';
-    host.appendChild(label);
-    enginePicker = label;
-  }
-
   function ensureOverlay() {
     const host = videoEl ? findHostFor(videoEl) : null;
     const target = host || document.body;
@@ -1037,7 +995,6 @@
       setOverlayActive(false);
       nativeCaptionHost = captionHost;
     }
-    ensureEnginePicker(captionHost || target);
     if (overlay && overlay.parentElement === target) return;
     overlay?.remove();
     overlay = document.createElement('div');
@@ -1065,8 +1022,6 @@
     rafId = null;
     setOverlayActive(false);
     nativeCaptionHost = null;
-    enginePicker?.remove();
-    enginePicker = null;
     overlay?.remove();
     overlay = tgtEl = srcEl = videoEl = null;
     cues = [];
@@ -1343,7 +1298,7 @@
       void processVideo(id, null, true);
     } else if (id && videoEl) {
       const currentVideo = findMainVideo();
-      if (currentVideo && (currentVideo !== videoEl || !enginePicker?.parentElement)) {
+      if (currentVideo && (currentVideo !== videoEl || !overlay?.parentElement)) {
         videoEl = currentVideo;
         ensureOverlay();
         if (cues.length) startTick();

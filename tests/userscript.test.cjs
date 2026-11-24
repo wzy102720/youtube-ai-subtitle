@@ -446,36 +446,33 @@ test('GPT 重试时保留邻句消歧上下文，并按编号将乱序译文放�
 });
 
 for (const origin of ['https://www.youtube.com', 'https://m.youtube.com']) {
-  test(`播放器直接列出三种引擎，首次选择 GPT 可取消，再选择用 Astra 翻译（${origin}）`, async () => {
-    const h = createHarness({origin, respond(request) {
-      if (request.url === 'https://api.openai.com/v1/responses') answerGPT(request, '[1] 你好。');
+  test(`翻译时播放器没有引擎选择框，顶部保留进度，油猴菜单可以切换到 GPT（${origin}）`, async () => {
+    const h = createHarness({origin, respond(request, index) {
+      if (request.url === 'https://api.openai.com/v1/responses') answerGPT(request, '[1] 你好。\n[2] 再见。');
+      else if (index === 0) request.onload({status: 200, responseText: JSON.stringify([[['你好。']]])});
     }});
-    const picker = () => h.ids.get('ytdsk-engine-picker').children[0];
-    assert.equal(h.ids.get('ytdsk-engine-picker').parentElement, h.player);
-    assert.deepEqual(picker().children.map(o => o.textContent), ['DeepSeek', 'GPT (OpenAI)', 'Google']);
-    assert.equal(picker().value, 'google');
-    await h.capture();
-    const oldRequest = h.requests[0];
-    function selectGPT(isTrusted) {
-      const select = picker();
-      select.value = 'openai';
-      select.onchange({isTrusted});
-    }
-    selectGPT(true);  // 第一次取消输入密钥
-    assert.equal(picker().value, 'google');
-    assert.equal(oldRequest.aborted, false);
+    const engines = h.menus.filter(menu => menu.label.startsWith('切换引擎 →'));
+    assert.deepEqual(engines.map(menu => menu.label), [
+      '切换引擎 → DeepSeek', '切换引擎 → GPT (OpenAI)', '切换引擎 → Google',
+    ]);
+    await h.capture('A', transcript(['Hello.', 'Bye.']));
+    assert.equal(h.ids.has('ytdsk-engine-picker'), false);
+    const banner = h.ids.get('ytdsk-debug');
+    assert.match(banner.textContent, /翻译中 1\/2/);
+    const pending = h.requests[1];
+    const selectGPT = engines.find(menu => menu.label === '切换引擎 → GPT (OpenAI)').callback;
+    selectGPT();
+    assert.equal(h.storage.get('translate_engine'), 'google');
+    assert.equal(pending.aborted, false);
     h.context.prompt = () => 'mock-openai';
-    selectGPT(false);
-    assert.equal(h.storage.has('openai_api_key'), false);
-    selectGPT(true);
+    selectGPT();
     await flush();
-    assert.equal(oldRequest.aborted, true);
-    assert.equal(picker().value, 'openai');
+    assert.equal(pending.aborted, true);
     assert.equal(h.storage.get('translate_engine'), 'openai');
-    assert.equal(h.requests.length, 2);
-    assert.equal(JSON.parse(h.requests[1].data).model, 'gpt-6.2-astra');
+    assert.equal(JSON.parse(h.requests.at(-1).data).model, 'gpt-6.2-astra');
     assert.equal(h.targetText(), '你好。');
-    await h.navigate(null);
+    assert.match(banner.textContent, /翻译完成/);
+    await h.clock.advance(1000);
     assert.equal(h.ids.has('ytdsk-engine-picker'), false);
   });
 }

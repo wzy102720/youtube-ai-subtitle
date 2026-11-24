@@ -43,7 +43,7 @@ API 按实际用量收费，价格以[官方模型与价格页面](https://api-d
 ### GPT（OpenAI）
 
 1. 在 [OpenAI API 平台](https://platform.openai.com/api-keys)选择项目并创建项目密钥。如果使用 ChatGPT 订阅赠送的 API 额度，请选额度所属组织的项目。可在[账单页](https://platform.openai.com/settings/organization/billing/overview)核对可用余额。
-2. 打开 YouTube 视频，在播放器左上角的“字幕翻译”中选择“GPT (OpenAI)”，也可在油猴菜单中点“切换引擎 → GPT (OpenAI)”。首次选择时粘贴项目密钥并确定。
+2. 打开 YouTube 视频，在油猴菜单中点“切换引擎 → GPT (OpenAI)”。首次选择时粘贴项目密钥并确定。
 3. 开启 CC。脚本通过 OpenAI Responses API 调用 `gpt-6.2-astra`。之后可以通过“设置 GPT (OpenAI) API Key”更换密钥。
 
 ### Google 翻译
@@ -70,9 +70,9 @@ API 按实际用量收费，价格以[官方模型与价格页面](https://api-d
 
 YouTube 切换字幕语言或自动字幕/人工字幕轨道时，脚本会重新处理对应字幕。缓存必须先匹配实际捕获的字幕，因此重新打开视频时仍需开启 CC。
 
-## 更新到 0.12.3
+## 更新到 0.12.4
 
-更新后刷新 YouTube 视频页。播放器左上角的「字幕翻译」下拉框会显示三种引擎。选 GPT (OpenAI) 后，字幕会按当前视频进度切换到 Astra。
+本版移除了播放器左上角的引擎选择框。切换引擎请使用油猴菜单。页面顶部的绿色进度条照常显示翻译进度。
 
 0.12.2 将 GPT 翻译模型设为 GPT-6.2 Astra。模型切换后，脚本会为同一视频单独缓存 Astra 的译文。
 
@@ -90,7 +90,7 @@ YouTube 切换字幕语言或自动字幕/人工字幕轨道时，脚本会重�
 
 本版保留移动端后台暂停与恢复、逐批保存进度、仅重试漏行、格式异常批次不阻断后续批次，以及保留进度重试菜单。0.11.2 已修复恢复事件漏发或乱序时停留在“已暂停翻译”的问题；确认页面可见后会清除旧的冻结标记，窗口焦点、前台动画帧及定时检查均可唤醒等待任务。0.11.3 补充英语整句翻译、上下文和缓存迁移。
 
-如果安卓 Edge 打开安装页时闪退，也可以复制[最新版脚本源码](https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js)，在油猴管理面板中编辑已安装的脚本，替换全部内容后保存。确认版本为 0.12.3，再刷新视频并开启 CC。
+如果安卓 Edge 打开安装页时闪退，也可以复制[最新版脚本源码](https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js)，在油猴管理面板中编辑已安装的脚本，替换全部内容后保存。确认版本为 0.12.4，再刷新视频并开启 CC。
 
 ## 常见问题
 
