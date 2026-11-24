@@ -375,7 +375,7 @@ test('首次选择 GPT 可取消或保存独立密钥，切换后读取对应缓
   assert.equal(request.headers.Authorization, 'Bearer test-openai-key');
   assert.equal(request.method, 'POST');
   const data = JSON.parse(request.data);
-  assert.equal(data.model, 'gpt-5.4-mini');
+  assert.equal(data.model, 'gpt-6.2-astra');
   assert.equal(data.store, false);
   assert.match(data.instructions, /Simplified Chinese/);
   assert.match(data.input, /\[1\] Hello there\./);

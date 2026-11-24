@@ -23,6 +23,16 @@ test('文档、介绍页、脚本和包版本一致', () => {
   assert.ok(read('index.html').includes(`当前版本 ${version}`));
 });
 
+test('油猴更新和下载地址与 README 的正式安装链接一致', () => {
+  const metadata = read('youtube-bilingual-subs.user.js').split('// ==/UserScript==')[0];
+  const url = 'https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js';
+  const lines = metadata.split('\n').map(line => line.trim().split(/\s+/));
+  for (const tag of ['updateURL', 'downloadURL']) {
+    assert.deepEqual(lines.filter(parts => parts[1] === '@' + tag), [['//', '@' + tag, url]]);
+  }
+  assert.ok(read('README.md').includes('](' + url + ')'));
+});
+
 test('模型升级和隐私说明与实际行为一致', () => {
   const readme = read('README.md');
   assert.match(readme, /deepseek-flash/);

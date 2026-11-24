@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         YouTube 双语字幕 (DeepSeek/Google 翻译)
 // @namespace    https://github.com/wzy102720/youtube-ai-subtitle
-// @version      0.12.1
+// @version      0.12.2
+// @updateURL    https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js
+// @downloadURL  https://raw.githubusercontent.com/wzy102720/youtube-ai-subtitle/main/youtube-bilingual-subs.user.js
 // @description  拦截 YouTube 字幕并翻译到目标语言，按时间轴叠加双语字幕，支持 DeepSeek、GPT（OpenAI）和 Google 翻译
 // @author       wzy102720
 // @match        *://*.youtube.com/*
@@ -27,7 +29,7 @@
     targetStore: 'target_lang',
     // 2026-10-17 官方更新：deepseek-flash 指向 DeepSeek-V4.1-Flash-1017。
     model: 'deepseek-flash',
-    openaiModel: 'gpt-5.4-mini',
+    openaiModel: 'gpt-6.2-astra',
     batchSize: 12,
     batchDelayMs: 200,
     requestTimeoutMs: 45000,
