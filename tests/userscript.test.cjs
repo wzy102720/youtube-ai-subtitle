@@ -419,3 +419,28 @@ test('GPT 截断的响应不能写入缓存，重试成功后只补译漏行', a
   assert.equal(h.caches().length, 1);
   assert.equal(h.targetText(), '第一句。');
 });
+
+test('GPT 重试时保留邻句消歧上下文，并按编号将乱序译文放回原时间轴', async () => {
+  const source = [
+    'The river rose overnight.',
+    'We waited on the bank until the water went down.',
+    'The bank declined our loan the next morning.',
+  ];
+  const h = createHarness({engine: 'openai', storage: [['openai_api_key', 'test-key']],
+    respond(request, attempt) {
+      answerGPT(request, attempt === 0 ? '[3] 第二天早晨，银行拒绝了我们的贷款申请。\n[1] 一夜之间河水涨了。'
+        : '[1] 我们在河岸上等到水退。');
+    }});
+  await h.capture('A', transcript(source));
+  await h.clock.advance(500);
+  assert.equal(h.requests.length, 2);
+  const retry = JSON.parse(h.requests[1].data);
+  const [reference, passages] = retry.input.split('\n\nPassages to translate:\n');
+  assert.deepEqual(JSON.parse(reference.split('\n')[1]), [{number: 1, before: source[0], after: source[2]}]);
+  assert.equal(passages, '[1] ' + source[1]);
+  for (const [i, word] of ['河水', '河岸', '银行'].entries()) {
+    await h.frame(i * 6 + 0.5);
+    assert.equal(h.sourceText(), source[i]);
+    assert.ok(h.targetText().includes(word));
+  }
+});

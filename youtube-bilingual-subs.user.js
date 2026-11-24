@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube 双语字幕 (DeepSeek/Google 翻译)
 // @namespace    https://github.com/wzy102720/youtube-ai-subtitle
-// @version      0.12.0
+// @version      0.12.1
 // @description  拦截 YouTube 字幕并翻译到目标语言，按时间轴叠加双语字幕，支持 DeepSeek、GPT（OpenAI）和 Google 翻译
 // @author       wzy102720
 // @match        *://*.youtube.com/*
@@ -37,12 +37,14 @@
     debugVisible: true,
     // 系统提示词模板：参数是目标语言的可读名（如 "简体中文 (Simplified Chinese)"）。
     // 源语言不写死——DeepSeek 完全可以自动识别输入语言。
-    systemPrompt: (tgtName) =>
+    systemPrompt: (tgtName, engine) =>
       `Translate each [N]-numbered subtitle passage in the final message into ${tgtName}.\n` +
       `Rules:\n` +
       `1) Exactly one output per input line. Do not merge or split lines.\n` +
       `2) Output format: "[N] translated text", where N matches the input number.\n` +
-      `3) Keep proper nouns, person names, and brand names in their original form.\n` +
+      (engine === 'openai'
+        ? `3) Translate ordinary words, roles and technical concepts using terms familiar to a native speaker. Keep literal identifiers and brand names intact.\n`
+        : `3) Keep proper nouns, person names, and brand names in their original form.\n`) +
       `4) Use natural, conversational language appropriate to the target.\n` +
       `5) Read each passage as continuous speech, not as isolated caption fragments. ` +
       `Use the supplied before/after context to resolve unfinished sentences and references. ` +
@@ -489,7 +491,7 @@
       ? 'Reference context only (before/after each numbered passage):\n' + JSON.stringify(context) + '\n\nPassages to translate:\n'
       : '';
     const prompt = reference + lines.map((t, i) => `[${i + 1}] ${t}`).join('\n');
-    const instructions = CFG.systemPrompt(langName(task.target));
+    const instructions = CFG.systemPrompt(langName(task.target), task.engine);
     const text = task.engine === 'openai'
       ? await requestOpenAI(prompt, instructions, task)
       : await requestDeepSeek(prompt, instructions, task);
@@ -501,8 +503,16 @@
       method: 'POST', url: 'https://api.openai.com/v1/responses',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${task.key}` },
       data: JSON.stringify({
-        model: task.model, instructions, input: prompt, store: false,
-        reasoning: { effort: 'none' }, max_output_tokens: 4096,
+        model: task.model,
+        instructions: instructions + '\n' +
+          'Use the surrounding captions to resolve meaning and references. Only express what the speaker ' +
+          'says in the current passage. Do not add an implied action, motive, cause, or outcome. ' +
+          'For example, "She slept until noon" describes sleep up to noon; leave what she did next unstated. ' +
+          'Preserve negation, uncertainty, conditions, comparisons, numbers and units. ' +
+          'Before answering, check each line for untranslated ordinary words, literal idioms or ' +
+          'extra information. Use consistent terminology when the meaning stays the same.',
+        input: prompt, store: false,
+        reasoning: { effort: 'low' }, max_output_tokens: 4096,
       }),
     }, task.signal);
     if (r.status === 429) {
